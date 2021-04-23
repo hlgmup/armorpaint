@@ -38,12 +38,12 @@ class UIMenu {
 	@:access(zui.Zui)
 	public static function render(g: kha.graphics2.Graphics) {
 		var ui = App.uiMenu;
-		var menuW = Std.int(ui.ELEMENT_W() * 2.0);
-		var BUTTON_COL = ui.t.BUTTON_COL;
+		var menuW = menuCommands != null ? Std.int(App.defaultElementW * App.uiMenu.SCALE() * 2.0) : Std.int(ui.ELEMENT_W() * 2.0);
+		var _BUTTON_COL = ui.t.BUTTON_COL;
 		ui.t.BUTTON_COL = ui.t.SEPARATOR_COL;
-		var ELEMENT_OFFSET = ui.t.ELEMENT_OFFSET;
+		var _ELEMENT_OFFSET = ui.t.ELEMENT_OFFSET;
 		ui.t.ELEMENT_OFFSET = 0;
-		var ELEMENT_H = ui.t.ELEMENT_H;
+		var _ELEMENT_H = ui.t.ELEMENT_H;
 		ui.t.ELEMENT_H = 28;
 
 		ui.beginRegion(g, menuX, menuY, menuW);
@@ -54,10 +54,10 @@ class UIMenu {
 		}
 		else {
 			var menuItems = [
-				16, // MenuFile
+				19, // MenuFile
 				4, // MenuEdit
-				#if (krom_windows || krom_linux) 14 #else 13 #end, // MenuViewport
-				#if (kha_direct3d12 || kha_vulkan) 13 #else 12 #end, // MenuMode
+				13, // MenuViewport
+				#if (kha_direct3d12 || kha_vulkan) 14 #else 13 #end, // MenuMode
 				17, // MenuCamera
 				7 // MenuHelp
 			];
@@ -72,10 +72,20 @@ class UIMenu {
 				if (ui.button("      " + tr("Save"), Left, Config.keymap.file_save)) Project.projectSave();
 				if (ui.button("      " + tr("Save As..."), Left, Config.keymap.file_save_as)) Project.projectSaveAs();
 				ui.fill(0, 0, sepw, 1, ui.t.ACCENT_SELECT_COL);
-				if (ui.button("      " + tr("Import Texture..."), Left, Config.keymap.file_import_assets)) Project.importAsset(Path.textureFormats.join(","));
+				if (ui.button("      " + tr("Import Texture..."), Left, Config.keymap.file_import_assets)) Project.importAsset(Path.textureFormats.join(","), false);
+				if (ui.button("      " + tr("Import Envmap..."), Left)) {
+					UIFiles.show("hdr", false, function(path: String) {
+						if (!path.endsWith(".hdr")) {
+							Log.error("Error: .hdr file expected");
+							return;
+						}
+						ImportAsset.run(path);
+					});
+				}
 				if (ui.button("      " + tr("Import Font..."), Left)) Project.importAsset("ttf,ttc,otf");
 				if (ui.button("      " + tr("Import Material..."), Left)) Project.importMaterial();
 				if (ui.button("      " + tr("Import Brush..."), Left)) Project.importBrush();
+				if (ui.button("      " + tr("Import Swatches..."), Left)) Project.importAsset("arm");
 				if (ui.button("      " + tr("Import Mesh..."), Left)) Project.importMesh();
 				if (ui.button("      " + tr("Reimport Mesh"), Left, Config.keymap.file_reimport_mesh)) Project.reimportMesh();
 				if (ui.button("      " + tr("Reimport Textures"), Left, Config.keymap.file_reimport_textures)) Project.reimportTextures();
@@ -84,6 +94,7 @@ class UIMenu {
 					Context.layersExport = ExportVisible;
 					BoxExport.showTextures();
 				}
+				if (ui.button("      " + tr("Export Swatches..."), Left)) Project.exportSwatches();
 				if (ui.button("      " + tr("Export Mesh..."), Left)) BoxExport.showMesh();
 				if (ui.button("      " + tr("Bake Material..."), Left)) BoxExport.showBakeMaterial();
 				ui.fill(0, 0, sepw, 1, ui.t.ACCENT_SELECT_COL);
@@ -108,20 +119,6 @@ class UIMenu {
 				if (ui.button("      " + tr("Preferences..."), Left, Config.keymap.edit_prefs)) BoxPreferences.show();
 			}
 			else if (menuCategory == MenuViewport) {
-				// if (Scene.active.world.probe.radianceMipmaps.length > 0) {
-					// ui.image(Scene.active.world.probe.radianceMipmaps[0]);
-				// }
-
-				if (ui.button("      " + tr("Import Envmap..."), Left)) {
-					UIFiles.show("hdr", false, function(path: String) {
-						if (!path.endsWith(".hdr")) {
-							Log.error("Error: .hdr file expected");
-							return;
-						}
-						ImportAsset.run(path);
-					});
-				}
-
 				if (ui.button("      " + tr("Distract Free"), Left, Config.keymap.view_distract_free)) {
 					UISidebar.inst.toggleDistractFree();
 					UISidebar.inst.ui.isHovered = false;
@@ -213,6 +210,7 @@ class UIMenu {
 			}
 			else if (menuCategory == MenuMode) {
 				var modeHandle = Id.handle();
+				modeHandle.position = Context.viewportMode;
 				var modes = [
 					tr("Lit"),
 					tr("Base Color"),
@@ -221,6 +219,7 @@ class UIMenu {
 					tr("Roughness"),
 					tr("Metallic"),
 					tr("Opacity"),
+					tr("Height"),
 					tr("TexCoord"),
 					tr("Object Normal"),
 					tr("Material ID"),
@@ -381,9 +380,9 @@ class UIMenu {
 		keepOpen = false;
 		if (ui.inputReleased) changeStarted = false;
 
-		ui.t.BUTTON_COL = BUTTON_COL;
-		ui.t.ELEMENT_OFFSET = ELEMENT_OFFSET;
-		ui.t.ELEMENT_H = ELEMENT_H;
+		ui.t.BUTTON_COL = _BUTTON_COL;
+		ui.t.ELEMENT_OFFSET = _ELEMENT_OFFSET;
+		ui.t.ELEMENT_H = _ELEMENT_H;
 		ui.endRegion();
 	}
 
@@ -414,7 +413,7 @@ class UIMenu {
 		menuElements = elements;
 		menuX = x > -1 ? x : Std.int(Input.getMouse().x);
 		menuY = y > -1 ? y : Std.int(Input.getMouse().y);
-		var menuW = App.uiMenu.ELEMENT_W() * 2.0;
+		var menuW = App.defaultElementW * App.uiMenu.SCALE() * 2.0;
 		if (menuX + menuW > System.windowWidth()) {
 			menuX = Std.int(System.windowWidth() - menuW);
 		}

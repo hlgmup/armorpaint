@@ -76,12 +76,13 @@ package arm;
 	var ViewRoughness = 4;
 	var ViewMetallic = 5;
 	var ViewOpacity = 6;
-	var ViewTexCoord = 7;
-	var ViewObjectNormal = 8;
-	var ViewMaterialID = 9;
-	var ViewObjectID = 10;
-	var ViewMask = 11;
-	var ViewPathTrace = 12;
+	var ViewHeight = 7;
+	var ViewTexCoord = 8;
+	var ViewObjectNormal = 9;
+	var ViewMaterialID = 10;
+	var ViewObjectID = 11;
+	var ViewMask = 12;
+	var ViewPathTrace = 13;
 }
 
 @:enum abstract RenderMode(Int) from Int to Int {
@@ -204,6 +205,11 @@ package arm;
 	var View2DFont = 2;
 }
 
+@:enum abstract View2DLayerMode(Int) from Int to Int {
+	var View2DVisible = 0;
+	var View2DSelected = 1;
+}
+
 @:enum abstract BorderSide(Int) from Int to Int {
 	var SideLeft = 0;
 	var SideRight = 1;
@@ -218,6 +224,7 @@ package arm;
 	var TexRoughness = 3;
 	var TexMetallic = 4;
 	var TexOpacity = 5;
+	var TexHeight = 6;
 }
 
 @:enum abstract ProjectModel(Int) from Int to Int {

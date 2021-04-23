@@ -15,18 +15,22 @@ class UIFiles {
 	public static var filename: String;
 	public static var path = defaultPath;
 	static var lastPath = "";
+	static var lastSearch = "";
 	static var files: Array<String> = null;
 	static var iconMap: Map<String, kha.Image> = null;
 	static var selected = -1;
-	static var showExtensions = true;
+	static var showExtensions = false;
 	static var offline = false;
 
 	public static function show(filters: String, isSave: Bool, filesDone: String->Void) {
 
 		#if krom_android
-		if (path == null) path = defaultPath;
-		showCustom(filters, isSave, filesDone);
-		#else
+		if (isSave) {
+			if (path == null) path = defaultPath;
+			showCustom(filters, isSave, filesDone);
+		}
+		else {
+		#end
 
 		path = isSave ? Krom.saveDialog(filters, "") : Krom.openDialog(filters, "");
 		if (path != null) {
@@ -37,6 +41,9 @@ class UIFiles {
 			filesDone(path);
 		}
 		releaseKeys();
+
+		#if krom_android
+		}
 		#end
 	}
 
@@ -75,7 +82,7 @@ class UIFiles {
 	}
 
 	@:access(zui.Zui)
-	public static function fileBrowser(ui: Zui, handle: Handle, foldersOnly = false, dragFiles = false): String {
+	public static function fileBrowser(ui: Zui, handle: Handle, foldersOnly = false, dragFiles = false, search = ""): String {
 
 		var icons = Res.get("icons.k");
 		var folder = Res.tile50(icons, 2, 1);
@@ -83,7 +90,7 @@ class UIFiles {
 		var isCloud = handle.text.startsWith("cloud");
 
 		if (handle.text == "") handle.text = defaultPath;
-		if (handle.text != lastPath) {
+		if (handle.text != lastPath || search != lastSearch) {
 			files = [];
 
 			// Up directory
@@ -96,10 +103,12 @@ class UIFiles {
 				if (f == "" || f.charAt(0) == ".") continue; // Skip hidden
 				if (f.indexOf(".") > 0 && !Path.isKnown(f)) continue; // Skip unknown extensions
 				if (isCloud && f.indexOf("_icon.") >= 0) continue; // Skip thumbnails
+				if (f.toLowerCase().indexOf(search.toLowerCase()) < 0) continue; // Search filter
 				files.push(f);
 			}
 		}
 		lastPath = handle.text;
+		lastSearch = search;
 		handle.changed = false;
 
 		var slotw = Std.int(70 * ui.SCALE());
@@ -147,8 +156,13 @@ class UIFiles {
 									iron.App.notifyOnInit(function() {
 										if (Layers.pipeCopyRGB == null) Layers.makePipeCopyRGB();
 										icon = kha.Image.createRenderTarget(image.width, image.height);
-										icon.g2.begin(false);
-										icon.g2.drawImage(Project.materials[0].image, 0, 0); // Used for alpha cutout
+										if (f.endsWith(".arm")) { // Used for material sphere alpha cutout
+											icon.g2.begin(false);
+											icon.g2.drawImage(Project.materials[0].image, 0, 0);
+										}
+										else {
+											icon.g2.begin(true, 0xffffffff);
+										}
 										icon.g2.pipeline = Layers.pipeCopyRGB;
 										icon.g2.drawImage(image, 0, 0);
 										icon.g2.pipeline = null;
@@ -168,15 +182,16 @@ class UIFiles {
 				}
 				if (f.endsWith(".arm") && !isCloud) {
 					if (iconMap == null) iconMap = [];
-					var icon = iconMap.get(handle.text + Path.sep + f);
-					if (icon == null) {
-						var bytes = Bytes.ofData(Krom.loadBlob(handle.text + Path.sep + f));
+					var key = handle.text + Path.sep + f;
+					var icon = iconMap.get(key);
+					if (!iconMap.exists(key)) {
+						var bytes = Bytes.ofData(Krom.loadBlob(key));
 						var raw = ArmPack.decode(bytes);
 						if (raw.material_icons != null) {
 							var bytesIcon = raw.material_icons[0];
 							icon = kha.Image.fromBytes(Lz4.decode(bytesIcon, 256 * 256 * 4), 256, 256);
-							iconMap.set(handle.text + Path.sep + f, icon);
 						}
+						iconMap.set(key, icon);
 					}
 					if (icon != null) {
 						state = ui.image(icon, 0xffffffff, 50 * ui.SCALE());
@@ -259,7 +274,8 @@ class UIFiles {
 		#if krom_windows
 		"C:\\Users"
 		#elseif krom_android
-		"/sdcard"
+		// "/sdcard/Android/data/org.armorpaint/files"
+		"/sdcard/Download"
 		#elseif krom_darwin
 		"/Users"
 		#else

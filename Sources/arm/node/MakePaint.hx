@@ -1,6 +1,7 @@
 package arm.node;
 
 import iron.data.SceneFormat;
+import zui.Nodes;
 import arm.ui.UISidebar;
 import arm.ui.UINodes;
 import arm.shader.MaterialParser;
@@ -114,7 +115,7 @@ class MakePaint {
 			decal) {
 
 			var depthReject = !Context.xray;
-			if (Config.raw.brush_3d && !Context.brushDepthReject) depthReject = false;
+			if (Config.raw.brush_3d && !Config.raw.brush_depth_reject) depthReject = false;
 
 			// TODO: sp.z needs to take height channel into account
 			if (Config.raw.brush_3d && !decal && MakeMaterial.heightUsed) depthReject = false;
@@ -197,7 +198,7 @@ class MakePaint {
 			MaterialParser.triplanar = uvType == UVTriplanar && !decal;
 			MaterialParser.sample_keep_aspect = decal;
 			MaterialParser.sample_uv_scale = 'brushScale';
-			var sout = MaterialParser.parse(UINodes.inst.getCanvasMaterial(), con_paint, vert, frag, null, null, null, matcon);
+			var sout = MaterialParser.parse(UINodes.inst.getCanvasMaterial(), con_paint, vert, frag, matcon);
 			MaterialParser.parse_emission = false;
 			MaterialParser.parse_subsurface = false;
 			MaterialParser.parse_height_as_channel = false;
@@ -331,20 +332,19 @@ class MakePaint {
 		if (Context.pickerMaskHandle.position == MaskMaterial) {
 			matid = Context.materialIdPicked / 255; // Keep existing material id in place when mask is set
 		}
-		var matidString = MaterialParser.vec1(matid);
+		var matidString = MaterialParser.vec1(matid * 3.0);
 		frag.write('float matid = $matidString;');
 
-		// TODO: Use emission/subsurface matid
 		// matid % 3 == 0 - normal, 1 - emission, 2 - subsurface
-		if (Context.material.paintSubs) {
-			frag.write('if (subs > 0.0) {');
-			frag.write('    matid = 254.0 / 255.0;');
+		if (Context.material.paintEmis) {
+			frag.write('if (emis > 0.0) {');
+			frag.write('	matid += 1.0 / 255.0;');
 			frag.write('	if (str == 0.0) discard;');
 			frag.write('}');
 		}
-		if (Context.material.paintEmis) {
-			frag.write('if (emis > 0.0) {');
-			frag.write('	matid = 1.0;');
+		else if (Context.material.paintSubs) {
+			frag.write('if (subs > 0.0) {');
+			frag.write('    matid += 2.0 / 255.0;');
 			frag.write('	if (str == 0.0) discard;');
 			frag.write('}');
 		}

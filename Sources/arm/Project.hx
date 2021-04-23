@@ -36,7 +36,7 @@ import arm.Enums;
 
 class Project {
 
-	public static var raw: TProjectFormat;
+	public static var raw: TProjectFormat = {};
 	public static var filepath = "";
 	public static var assets: Array<TAsset> = [];
 	public static var assetNames: Array<String> = [];
@@ -104,7 +104,8 @@ class Project {
 			projectSaveAs();
 			return;
 		}
-		Window.get(0).title = UIFiles.filename + " - ArmorPaint";
+		var filename = Project.filepath.substring(Project.filepath.lastIndexOf(Path.sep) + 1, Project.filepath.length - 4);
+		Window.get(0).title = filename + " - ArmorPaint";
 
 		function _init() {
 			ExportArm.runProject();
@@ -223,8 +224,7 @@ class Project {
 			Data.cachedMeshes.set("SceneTessellated", md);
 
 			if (Context.projectType == ModelTessellatedPlane) {
-				ViewportUtil.setView(0, 0, 5, 0, 0, 0); // Top
-				ViewportUtil.orbit(0, Math.PI / 6); // Orbit down
+				ViewportUtil.setView(0, 0, 0.75, 0, 0, 0); // Top
 			}
 		}
 
@@ -253,6 +253,8 @@ class Project {
 			var fontNames = App.font.getFontNames();
 			fonts = [new FontSlot(fontNames.length > 0 ? fontNames[0] : "default.ttf", App.font)];
 			Context.font = fonts[0];
+			Project.setDefaultSwatches();
+			Context.swatch = Project.raw.swatches[0];
 
 			History.reset();
 
@@ -263,6 +265,7 @@ class Project {
 			assetNames = [];
 			assetMap = [];
 			assetId = 0;
+			Project.raw.packed_assets = [];
 			Context.ddirty = 4;
 			UISidebar.inst.hwnd0.redraws = 2;
 			UISidebar.inst.hwnd1.redraws = 2;
@@ -282,7 +285,8 @@ class Project {
 
 			if (current != null) current.begin(false);
 
-			Context.savedEnvmap = Context.defaultEnvmap;
+			Context.savedEnvmap = null;
+			Context.envmapLoaded = false;
 			Scene.active.world.envmap = Context.emptyEnvmap;
 			Scene.active.world.raw.envmap = "World_radiance.k";
 			Context.showEnvmapHandle.selected = Context.showEnvmap = false;
@@ -356,7 +360,7 @@ class Project {
 		});
 	}
 
-	public static function importMeshBox(path: String, replaceExisting = true) {
+	public static function importMeshBox(path: String, replaceExisting = true, clearLayers = true) {
 
 		#if krom_ios
 		// Import immediately while access to resource is unlocked
@@ -393,7 +397,7 @@ class Project {
 				if (ui.button(tr("Import")) || ui.isReturnDown) {
 					UIBox.show = false;
 					App.redrawUI();
-					ImportMesh.run(path, true, replaceExisting);
+					ImportMesh.run(path, clearLayers, replaceExisting);
 				}
 				if (ui.button(tr("?"))) {
 					File.explorer("https://github.com/armory3d/armorpaint_docs/blob/master/faq.md");
@@ -405,16 +409,21 @@ class Project {
 
 	public static function reimportMesh() {
 		if (Project.meshAssets != null && Project.meshAssets.length > 0) {
-			ImportMesh.run(Project.meshAssets[0], false);
-			Log.info("Mesh reimported.");
+			importMeshBox(Project.meshAssets[0], true, false);
 		}
 		else importAsset();
 	}
 
-	public static function importAsset(filters: String = null) {
+	public static function importAsset(filters: String = null, hdrAsEnvmap = true) {
 		if (filters == null) filters = Path.textureFormats.join(",") + "," + Path.meshFormats.join(",");
 		UIFiles.show(filters, false, function(path: String) {
-			ImportAsset.run(path);
+			ImportAsset.run(path, -1.0, -1.0, true, hdrAsEnvmap);
+		});
+	}
+
+	public static function importSwatches() {
+		UIFiles.show("arm", false, function(path: String) {
+			ImportArm.runSwatches(path);
 		});
 	}
 
@@ -456,6 +465,31 @@ class Project {
 		var visibles: Array<MeshObject> = [];
 		for (i in 0...Project.paintObjects.length) if (Project.atlasObjects[i] == atlasI) visibles.push(Project.paintObjects[i]);
 		return visibles;
+	}
+
+	public static function packedAssetExists(packed_assets: Array<TPackedAsset>, name: String): Bool {
+		for (pa in packed_assets) if (pa.name == name) return true;
+		return false;
+	}
+
+	public static function exportSwatches() {
+		UIFiles.show("arm", true, function(path: String) {
+			var f = UIFiles.filename;
+			if (f == "") f = tr("untitled");
+			ExportArm.runSwatches(path + Path.sep + f);
+		});
+	}
+
+	public static function makeSwatch(base = 0xffffffff): TSwatchColor {
+		return { base: base, opacity: 1.0, occlusion: 1.0, roughness: 0.0, metallic: 0.0, normal: 0xff8080ff, emission: 0.0, height: 0.0, subsurface: 0.0 };
+	}
+
+	public static function setDefaultSwatches() {
+		// 32-Color Palette by Andrew Kensler
+		// http://eastfarthing.com/blog/2016-05-06-palette/
+		Project.raw.swatches = [];
+		var colors = [0xffffffff, 0xff000000, 0xffd6a090, 0xffa12c32, 0xfffa2f7a, 0xfffb9fda, 0xffe61cf7, 0xff992f7c, 0xff47011f, 0xff051155, 0xff4f02ec, 0xff2d69cb, 0xff00a6ee, 0xff6febff, 0xff08a29a, 0xff2a666a, 0xff063619, 0xff4a4957, 0xff8e7ba4, 0xffb7c0ff, 0xffacbe9c, 0xff827c70, 0xff5a3b1c, 0xffae6507, 0xfff7aa30, 0xfff4ea5c, 0xff9b9500, 0xff566204, 0xff11963b, 0xff51e113, 0xff08fdcc];
+		for (c in colors) Project.raw.swatches.push(Project.makeSwatch(c));
 	}
 }
 

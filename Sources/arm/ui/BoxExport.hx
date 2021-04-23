@@ -6,6 +6,7 @@ import zui.Id;
 import arm.util.UVUtil;
 import arm.io.ExportMesh;
 import arm.io.ExportTexture;
+import arm.io.ExportArm;
 import arm.sys.Path;
 import arm.sys.File;
 import arm.Enums;
@@ -17,6 +18,7 @@ class BoxExport {
 	public static var files: Array<String> = null;
 	public static var preset: TExportPreset = null;
 	static var channels = ["base_r", "base_g", "base_b", "height", "metal", "nor_r", "nor_g", "nor_b", "occ", "opac", "rough", "smooth", "emis", "subs", "0.0", "1.0"];
+	static var colorSpaces = ["linear", "srgb"];
 
 	public static function showTextures() {
 		UIBox.showCustom(function(ui: Zui) {
@@ -31,7 +33,7 @@ class BoxExport {
 			tabPresets(ui);
 			tabAtlases(ui);
 
-		}, 500, 310);
+		}, 540, 310);
 	}
 
 	public static function showBakeMaterial() {
@@ -46,7 +48,7 @@ class BoxExport {
 			tabExportTextures(ui, tr("Bake to Textures"), true);
 			tabPresets(ui);
 
-		}, 500, 310);
+		}, 540, 310);
 	}
 
 	static function tabExportTextures(ui: Zui, title: String, bakeMaterial = false) {
@@ -157,16 +159,17 @@ class BoxExport {
 
 			// Texture list
 			ui.separator(10, false);
-			ui.row([0.2, 0.2, 0.2, 0.2, 0.2]);
+			ui.row([1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6]);
 			ui.text(tr("Texture"));
 			ui.text(tr("R"));
 			ui.text(tr("G"));
 			ui.text(tr("B"));
 			ui.text(tr("A"));
+			ui.text(tr("Color Space"));
 			ui.changed = false;
 			for (i in 0...preset.textures.length) {
 				var t = preset.textures[i];
-				ui.row([0.2, 0.2, 0.2, 0.2, 0.2]);
+				ui.row([1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6]);
 				var htex = hpreset.nest(i);
 				htex.text = t.name;
 				t.name = ui.textInput(htex);
@@ -198,6 +201,11 @@ class BoxExport {
 				if (hb.changed) t.channels[2] = channels[hb.position];
 				ui.combo(ha, channels, tr("A"));
 				if (ha.changed) t.channels[3] = channels[ha.position];
+
+				var hspace = htex.nest(4);
+				hspace.position = colorSpaces.indexOf(t.color_space);
+				ui.combo(hspace, colorSpaces, tr("Color Space"));
+				if (hspace.changed) t.color_space = colorSpaces[hspace.position];
 			}
 
 			if (ui.changed) {
@@ -206,7 +214,7 @@ class BoxExport {
 
 			ui.row([1 / 8]);
 			if (ui.button(tr("Add"))) {
-				preset.textures.push({name: "base", channels: ["base_r", "base_g", "base_b", "1.0"]});
+				preset.textures.push({name: "base", channels: ["base_r", "base_g", "base_b", "1.0"], color_space: "linear"});
 				@:privateAccess hpreset.children = null;
 				savePreset();
 			}
@@ -266,6 +274,62 @@ class BoxExport {
 		});
 	}
 
+	public static function showMaterial() {
+		UIBox.showCustom(function(ui: Zui) {
+			var htab = Id.handle();
+			if (ui.tab(htab, tr("Export Material"))) {
+				var h1 = Id.handle();
+				var h2 = Id.handle();
+				h1.selected = Context.packAssetsOnExport;
+				h2.selected = Context.writeIconOnExport;
+				Context.packAssetsOnExport = ui.check(h1, tr("Pack Assets"));
+				Context.writeIconOnExport = ui.check(h2, tr("Export Icon"));
+				ui.row([0.5, 0.5]);
+				if (ui.button(tr("Cancel"))) {
+					UIBox.show = false;
+				}
+				if (ui.button(tr("Export"))) {
+					UIBox.show = false;
+					UIFiles.show("arm", true, function(path: String) {
+						var f = UIFiles.filename;
+						if (f == "") f = tr("untitled");
+						iron.App.notifyOnInit(function() {
+							ExportArm.runMaterial(path + Path.sep + f);
+						});
+					});
+				}
+			}
+		});
+	}
+
+	public static function showBrush() {
+		UIBox.showCustom(function(ui: Zui) {
+			var htab = Id.handle();
+			if (ui.tab(htab, tr("Export Brush"))) {
+				var h1 = Id.handle();
+				var h2 = Id.handle();
+				h1.selected = Context.packAssetsOnExport;
+				h2.selected = Context.writeIconOnExport;
+				Context.packAssetsOnExport = ui.check(h1, tr("Pack Assets"));
+				Context.writeIconOnExport = ui.check(h2, tr("Export Icon"));
+				ui.row([0.5, 0.5]);
+				if (ui.button(tr("Cancel"))) {
+					UIBox.show = false;
+				}
+				if (ui.button(tr("Export"))) {
+					UIBox.show = false;
+					UIFiles.show("arm", true, function(path: String) {
+						var f = UIFiles.filename;
+						if (f == "") f = tr("untitled");
+						iron.App.notifyOnInit(function() {
+							ExportArm.runBrush(path + Path.sep + f);
+						});
+					});
+				}
+			}
+		});
+	}
+
 	static function fetchPresets() {
 		#if (krom_android || krom_ios)
 
@@ -293,7 +357,7 @@ class BoxExport {
 		var template =
 '{
 	"textures": [
-		{ "name": "base", "channels": ["base_r", "base_g", "base_b", "1.0"] }
+		{ "name": "base", "channels": ["base_r", "base_g", "base_b", "1.0"], "color_space": "linear" }
 	]
 }
 ';

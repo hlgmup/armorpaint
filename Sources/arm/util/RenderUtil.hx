@@ -53,11 +53,17 @@ class RenderUtil {
 		Scene.active.camera.data.raw.fov = 0.92;
 		ViewportUtil.updateCameraType(CameraPerspective);
 		var light = Scene.active.lights[0];
-		var savedLight = light.data.raw.strength;
+		var _lightStrength = light.data.raw.strength;
 		var probe = Scene.active.world.probe;
-		var savedProbe = probe.raw.strength;
-		light.data.raw.strength = 1500;
-		probe.raw.strength = 4;
+		var _probeStrength = probe.raw.strength;
+		light.data.raw.strength = 0;
+		probe.raw.strength = 7;
+		var _envmapAngle = Context.envmapAngle;
+		Context.envmapAngle = 6.0;
+		var _brushScale = Context.brushScale;
+		Context.brushScale = 1.5;
+		var _brushNodesScale = Context.brushNodesScale;
+		Context.brushNodesScale = 1.0;
 
 		Scene.active.world.envmap = Context.previewEnvmap;
 		// No resize
@@ -86,8 +92,11 @@ class RenderUtil {
 		Scene.active.camera.data.raw.fov = savedFov;
 		Scene.active.camera.buildProjection();
 		Scene.active.camera.buildMatrix();
-		light.data.raw.strength = savedLight;
-		probe.raw.strength = savedProbe;
+		light.data.raw.strength = _lightStrength;
+		probe.raw.strength = _probeStrength;
+		Context.envmapAngle = _envmapAngle;
+		Context.brushScale = _brushScale;
+		Context.brushNodesScale = _brushNodesScale;
 		Scene.active.world.envmap = Context.showEnvmap ? Context.savedEnvmap : Context.emptyEnvmap;
 		MakeMaterial.parseMeshMaterial();
 		Context.ddirty = 0;
@@ -227,7 +236,7 @@ class RenderUtil {
 		// Prepare layers
 		if (RenderPathPaint.liveLayer == null) {
 			RenderPathPaint.liveLayer = new arm.data.LayerSlot("_live");
-			RenderPathPaint.liveLayer.createMask(0x00000000);
+			RenderPathPaint.liveLayer.createMask(0xffffffff);
 		}
 
 		var l = RenderPathPaint.liveLayer;
@@ -274,9 +283,16 @@ class RenderUtil {
 		Context.material = new arm.data.MaterialSlot();
 		var _tool = Context.tool;
 		Context.tool = ToolBrush;
-		MakeMaterial.parsePaintMaterial();
+		var _layerIsMask = Context.layerIsMask;
+		Context.layerIsMask = false;
+
+		var _fill_layer = Context.layer.fill_layer;
+		var _fill_mask = Context.layer.fill_mask;
+		Context.layer.fill_layer = null;
+		Context.layer.fill_mask = null;
 
 		RenderPathPaint.useLiveLayer(true);
+		MakeMaterial.parsePaintMaterial(false);
 
 		var path = RenderPath.active;
 		var hid = History.undoI - 1 < 0 ? Config.raw.undo_steps - 1 : History.undoI - 1;
@@ -358,12 +374,16 @@ class RenderUtil {
 		Context.prevPaintVecX = -1;
 		Context.prevPaintVecY = -1;
 		Context.pdirty = _pdirty;
+		Context.layer.fill_layer = _fill_layer;
+		Context.layer.fill_mask = _fill_mask;
+		RenderPathPaint.useLiveLayer(false);
 		// scons[_si] = _scon;
 		// mcons[_mi] = _mcon;
 		Context.material = _material;
 		Context.tool = _tool;
+		Context.layerIsMask = _layerIsMask;
 		function _init() {
-			MakeMaterial.parsePaintMaterial();
+			MakeMaterial.parsePaintMaterial(false);
 		}
 		iron.App.notifyOnInit(_init);
 
@@ -381,8 +401,6 @@ class RenderUtil {
 		ViewportUtil.updateCameraType(Context.cameraType);
 		Scene.active.camera.buildProjection();
 		Scene.active.camera.buildMatrix();
-
-		RenderPathPaint.useLiveLayer(false);
 
 		// Scale layer down to to image preview
 		if (Layers.pipeMerge == null) Layers.makePipe();
@@ -431,8 +449,8 @@ class RenderUtil {
 		screenAlignedFullIB.unlock();
 	}
 
-	public static function makeNodePreview(canvas: TNodeCanvas, node: TNode, image: kha.Image) {
-		var res = MakeMaterial.parseNodePreviewMaterial(node);
+	public static function makeNodePreview(canvas: TNodeCanvas, node: TNode, image: kha.Image, group: TNodeCanvas = null, parents: Array<TNode> = null) {
+		var res = MakeMaterial.parseNodePreviewMaterial(node, group, parents);
 		if (res == null || res.scon == null) return;
 
 		var g4 = image.g4;
@@ -463,9 +481,12 @@ class RenderUtil {
 		Context.pdirty = 1;
 		var _tool = Context.tool;
 		Context.tool = ToolPicker;
+		var _layerIsMask = Context.layerIsMask;
+		Context.layerIsMask = false;
 		MakeMaterial.parsePaintMaterial();
 		arm.render.RenderPathPaint.commandsPaint(false);
 		Context.tool = _tool;
+		Context.layerIsMask = _layerIsMask;
 		Context.pickPosNor = false;
 		MakeMaterial.parsePaintMaterial();
 		Context.pdirty = 0;

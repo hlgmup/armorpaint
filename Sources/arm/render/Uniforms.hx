@@ -100,6 +100,21 @@ class Uniforms {
 			case "_decalLayerDim": {
 				return Context.layer.decalMat.getScale().z * 0.5;
 			}
+			case "_pickerOpacity": {
+				return Context.swatch.opacity;
+			}
+			case "_pickerOcclusion": {
+				return Context.swatch.occlusion;
+			}
+			case "_pickerRoughness": {
+				return Context.swatch.roughness;
+			}
+			case "_pickerMetallic": {
+				return Context.swatch.metallic;
+			}
+			case "_pickerHeight": {
+				return Context.swatch.height;
+			}
 		}
 		if (MaterialParser.script_links != null) {
 			for (key in MaterialParser.script_links.keys()) {
@@ -179,6 +194,16 @@ class Uniforms {
 			case "_decalLayerNor": {
 				v = iron.object.Uniforms.helpVec;
 				v.set(Context.layer.decalMat._20, Context.layer.decalMat._21, Context.layer.decalMat._22).normalize();
+				return v;
+			}
+			case "_pickerBase": {
+				v = iron.object.Uniforms.helpVec;
+				v.set(Context.swatch.base.R, Context.swatch.base.G, Context.swatch.base.B);
+				return v;
+			}
+			case "_pickerNormal": {
+				v = iron.object.Uniforms.helpVec;
+				v.set(Context.swatch.normal.R, Context.swatch.normal.G, Context.swatch.normal.B);
 				return v;
 			}
 		}
@@ -341,13 +366,15 @@ class Uniforms {
 		}
 		if (link.startsWith("_texblur_")) {
 			var id = link.substr(9);
-			return Context.nodePreviewsBlur != null ? Context.nodePreviewsBlur.get(id) : RenderPath.active.renderTargets.get("empty_black").image;
+			return Context.nodePreviews != null ? Context.nodePreviews.get(id) : RenderPath.active.renderTargets.get("empty_black").image;
 		}
-
-		// Warp uniforms
 		if (link.startsWith("_texwarp_")) {
 			var id = link.substr(9);
-			return Context.nodePreviewsWarp != null ? Context.nodePreviewsWarp.get(id) : RenderPath.active.renderTargets.get("empty_black").image;
+			return Context.nodePreviews != null ? Context.nodePreviews.get(id) : RenderPath.active.renderTargets.get("empty_black").image;
+		}
+		if (link.startsWith("_texbake_")) {
+			var id = link.substr(9);
+			return Context.nodePreviews != null ? Context.nodePreviews.get(id) : RenderPath.active.renderTargets.get("empty_black").image;
 		}
 
 		return null;

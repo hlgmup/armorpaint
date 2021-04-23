@@ -37,17 +37,13 @@ class UINodes {
 	var popupX = 0.0;
 	var popupY = 0.0;
 
-	public var changed = false;
-	var mdown = false;
-	var mreleased = false;
-	var mchanged = false;
-	var mstartedlast = false;
+	var uichangedLast = false;
 	var recompileMat = false; // Mat preview
 	var recompileMatFinal = false;
 	var nodeSearchSpawn: TNode = null;
 	var nodeSearchOffset = 0;
 	var nodeSearchLast = "";
-	var lastCanvas: TNodeCanvas;
+	var lastCanvas: TNodeCanvas = null;
 	var lastNodeSelected: TNode = null;
 
 	public var grid: Image = null;
@@ -79,10 +75,10 @@ class UINodes {
 			var linkY = ui._windowY + nodes.NODE_Y(node);
 			if (linkDrag.from_id > -1) {
 				linkX += nodes.NODE_W();
-				linkY += nodes.SOCKET_Y(linkDrag.from_socket);
+				linkY += nodes.OUTPUT_Y(node.outputs, linkDrag.from_socket);
 			}
 			else {
-				linkY += nodes.SOCKET_Y(linkDrag.to_socket + node.outputs.length) + nodes.BUTTONS_H(node);
+				linkY += nodes.INPUT_Y(getCanvas(true), node.inputs, linkDrag.to_socket) + nodes.OUTPUTS_H(node.outputs) + nodes.BUTTONS_H(node);
 			}
 			var mouse = Input.getMouse();
 			if (Math.abs(mouse.x - linkX) > 5 || Math.abs(mouse.y - linkY) > 5) { // Link length
@@ -100,16 +96,18 @@ class UINodes {
 					}
 				});
 			}
-			else {
+			// Selecting which node socket to preview
+			else if (node == nodes.nodesSelected[0]) {
 				Context.nodePreviewSocket = linkDrag.from_id > -1 ? linkDrag.from_socket : 0;
+				Context.nodePreviewDirty = true;
 			}
 		}
 	}
 
 	function onSocketReleased(socket: TNodeSocket) {
+		var nodes = getNodes();
+		var node = nodes.getNode(getCanvas(true).nodes, socket.node_id);
 		if (ui.inputReleasedR) {
-			var nodes = getNodes();
-			var node = nodes.getNode(getCanvas(true).nodes, socket.node_id);
 			if (node.type == "GROUP_INPUT" || node.type == "GROUP_OUTPUT") {
 				App.notifyOnNextFrame(function() {
 					arm.ui.UIMenu.draw(function(ui: Zui) {
@@ -188,9 +186,17 @@ class UINodes {
 				});
 			}
 		}
+		// Selecting which node socket to preview
+		else if (node == nodes.nodesSelected[0]) {
+			var i = node.outputs.indexOf(socket);
+			if (i > -1) {
+				Context.nodePreviewSocket = i;
+				Context.nodePreviewDirty = true;
+			}
+		}
 	}
 
-	function onNodeRemove(node: TNode) {
+	public static function onNodeRemove(node: TNode) {
 		if (node.type == "GROUP") { // Remove unused groups
 			var found = false;
 			var canvases: Array<TNodeCanvas> = [];
@@ -258,31 +264,9 @@ class UINodes {
 	}
 
 	public function update() {
+		if (!show || !App.uiEnabled) return;
+
 		var mouse = Input.getMouse();
-		mreleased = mouse.released();
-		mdown = mouse.down();
-
-		// Recompile material on change
-		if (ui.changed) {
-			mchanged = true;
-			if (!mdown) changed = true;
-		}
-		if ((mreleased && mchanged) || changed) {
-			mchanged = changed = false;
-			canvasChanged();
-			if (mreleased) {
-				UISidebar.inst.hwnd0.redraws = 2;
-				var canvasGroup = groupStack.length > 0 ? Project.materialGroups.indexOf(groupStack[groupStack.length - 1]) : null;
-				History.editNodes(lastCanvas, canvasType, canvasGroup);
-			}
-		}
-		else if (ui.changed && (mstartedlast || mouse.moved) && Config.raw.material_live) {
-			recompileMat = true; // Instant preview
-		}
-		mstartedlast = mouse.started();
-
-		if (!show) return;
-		if (!App.uiEnabled) return;
 		var kb = Input.getKeyboard();
 
 		wx = Std.int(iron.App.w()) + UIToolbar.inst.toolbarw;
@@ -291,10 +275,15 @@ class UINodes {
 			wy += iron.App.h() - Config.raw.layout[LayoutNodesH];
 		}
 		var ww = Config.raw.layout[LayoutNodesW];
+		if (!UISidebar.inst.show) {
+			ww += Config.raw.layout[LayoutSidebarW] + UIToolbar.inst.toolbarw;
+			wx -= UIToolbar.inst.toolbarw;
+			wy = 0;
+		}
 		var mx = mouse.x;
 		var my = mouse.y;
 		if (mx < wx || mx > wx + ww || my < wy) return;
-		if (ui.isTyping) return;
+		if (ui.isTyping || !ui.inputEnabled) return;
 
 		if (addNodeButton) {
 			showMenu = true;
@@ -361,6 +350,7 @@ class UINodes {
 					if (tr(n.name).toLowerCase().indexOf(search) >= 0) {
 						ui.t.BUTTON_COL = count == nodeSearchOffset ? ui.t.HIGHLIGHT_COL : ui.t.WINDOW_BG_COL;
 						if (ui.button(tr(n.name), Left) || (enter && count == nodeSearchOffset)) {
+							pushUndo();
 							var nodes = getNodes();
 							var canvas = getCanvas(true);
 							nodeSearchSpawn = makeNode(n, nodes, canvas); // Spawn selected node
@@ -399,6 +389,9 @@ class UINodes {
 
 	public function drawGrid() {
 		var ww = Config.raw.layout[LayoutNodesW];
+		if (!UISidebar.inst.show) {
+			ww += Config.raw.layout[LayoutSidebarW] + UIToolbar.inst.toolbarw;
+		}
 		var wh = iron.App.h();
 		var w = ww + 100 * 2;
 		var h = wh + 100 * 2;
@@ -443,9 +436,12 @@ class UINodes {
 		}
 		else if (recompileMatFinal) {
 			MakeMaterial.parsePaintMaterial();
-			if (Layers.isFillMaterial()) {
+
+			if (canvasType == CanvasMaterial && Layers.isFillMaterial()) {
+				Layers.updateFillLayers();
 				RenderUtil.makeMaterialPreview();
 			}
+
 			var decal = Context.tool == ToolDecal || Context.tool == ToolText;
 			if (decal) RenderUtil.makeDecalPreview();
 
@@ -461,15 +457,10 @@ class UINodes {
 			Context.nodePreviewSocket = 0;
 		}
 
-		if (!show) return;
-		if (System.windowWidth() == 0 || System.windowHeight() == 0) return;
+		if (!show || System.windowWidth() == 0 || System.windowHeight() == 0) return;
 
 		if (!App.uiEnabled && ui.inputRegistered) ui.unregisterInput();
 		if (App.uiEnabled && !ui.inputRegistered) ui.registerInput();
-
-		if (ui.inputStarted) {
-			lastCanvas = Json.parse(Json.stringify(getCanvas(true)));
-		}
 
 		g.end();
 
@@ -484,11 +475,19 @@ class UINodes {
 		ww = Config.raw.layout[LayoutNodesW];
 		wx = Std.int(iron.App.w()) + UIToolbar.inst.toolbarw;
 		wy = UIHeader.inst.headerh * 2;
+		if (!UISidebar.inst.show) {
+			ww += Config.raw.layout[LayoutSidebarW] + UIToolbar.inst.toolbarw;
+			wx -= UIToolbar.inst.toolbarw;
+			wy = 0;
+		}
 		var ew = Std.int(ui.ELEMENT_W() * 0.7);
 		wh = iron.App.h();
 		if (UIView2D.inst.show) {
 			wh = Config.raw.layout[LayoutNodesH];
 			wy = iron.App.h() - Config.raw.layout[LayoutNodesH] + UIHeader.inst.headerh * 2;
+			if (!UISidebar.inst.show) {
+				wy -= UIHeader.inst.headerh * 2;
+			}
 		}
 		if (ui.window(hwnd, wx, wy, ww, wh)) {
 
@@ -496,9 +495,26 @@ class UINodes {
 			ui.g.color = 0xffffffff;
 			ui.g.drawImage(grid, (nodes.panX * nodes.SCALE()) % 100 - 100, (nodes.panY * nodes.SCALE()) % 100 - 100);
 
+			// Undo
+			if (ui.inputStarted || ui.isKeyPressed) {
+				lastCanvas = Json.parse(Json.stringify(getCanvas(true)));
+			}
+
 			// Nodes
 			var c = getCanvas(true);
+			ui.inputEnabled = !drawMenu;
 			nodes.nodeCanvas(ui, c);
+			ui.inputEnabled = true;
+
+			// Recompile material on change
+			if (ui.changed) {
+				recompileMat = (ui.inputDX != 0 || ui.inputDY != 0 || !uichangedLast) && Config.raw.material_live; // Instant preview
+			}
+			else if (uichangedLast) {
+				canvasChanged();
+				pushUndo(lastCanvas);
+			}
+			uichangedLast = ui.changed;
 
 			// Node previews
 			if (Config.raw.node_preview && nodes.nodesSelected.length > 0) {
@@ -642,20 +658,19 @@ class UINodes {
 			var isGroupCategory = canvasType == CanvasMaterial && NodesMaterial.categories[menuCategory] == tr("Group");
 			if (isGroupCategory) numNodes += Project.materialGroups.length;
 
-			var ph = numNodes * ui.t.ELEMENT_H * ui.SCALE();
 			var py = popupY;
-			g.color = ui.t.WINDOW_BG_COL;
 			var menuw = Std.int(ew * 2.0);
-			g.fillRect(popupX, py, menuw, ph);
-
 			ui.beginRegion(g, Std.int(popupX), Std.int(py), menuw);
 			var _BUTTON_COL = ui.t.BUTTON_COL;
 			ui.t.BUTTON_COL = ui.t.WINDOW_BG_COL;
+			var _BUTTON_H = ui.t.BUTTON_H;
+			ui.t.BUTTON_H = ui.t.ELEMENT_H;
 			var _ELEMENT_OFFSET = ui.t.ELEMENT_OFFSET;
 			ui.t.ELEMENT_OFFSET = 0;
 
 			for (n in list[menuCategory]) {
 				if (ui.button("      " + tr(n.name), Left)) {
+					pushUndo();
 					var canvas = getCanvas(true);
 					var nodes = getNodes();
 					var node = makeNode(n, nodes, canvas);
@@ -663,10 +678,12 @@ class UINodes {
 					nodes.nodesSelected = [node];
 					nodes.nodesDrag = true;
 				}
+				if (ui._y - wy + ui.ELEMENT_H() / 2 > wh) { ui._x += menuw; ui._y = py; }
 			}
 			if (isGroupCategory) {
 				for (g in Project.materialGroups) {
 					if (ui.button("      " + g.canvas.name, Left)) {
+						pushUndo();
 						var canvas = getCanvas(true);
 						var nodes = getNodes();
 						var node = makeGroupNode(g.canvas, nodes, canvas);
@@ -678,6 +695,7 @@ class UINodes {
 			}
 
 			ui.t.BUTTON_COL = _BUTTON_COL;
+			ui.t.BUTTON_H = _BUTTON_H;
 			ui.t.ELEMENT_OFFSET = _ELEMENT_OFFSET;
 			ui.endRegion();
 		}
@@ -692,22 +710,44 @@ class UINodes {
 		}
 	}
 
-	public function acceptAssetDrag(assetIndex: Int) {
-		var n = canvasType == CanvasMaterial ? NodesMaterial.createNode("TEX_IMAGE") : NodesBrush.createNode("TEX_IMAGE");
-		n.buttons[0].default_value = assetIndex;
+	function pushUndo(lastCanvas: TNodeCanvas = null) {
+		if (lastCanvas == null) lastCanvas = getCanvas(true);
+		UISidebar.inst.hwnd0.redraws = 2;
+		var canvasGroup = groupStack.length > 0 ? Project.materialGroups.indexOf(groupStack[groupStack.length - 1]) : null;
+		History.editNodes(lastCanvas, canvasType, canvasGroup);
+	}
+
+	public function acceptAssetDrag(index: Int) {
+		pushUndo();
+		var g = groupStack.length > 0 ? groupStack[groupStack.length - 1] : null;
+		var n = canvasType == CanvasMaterial ? NodesMaterial.createNode("TEX_IMAGE", g) : NodesBrush.createNode("TEX_IMAGE");
+		n.buttons[0].default_value = index;
 		getNodes().nodesSelected = [n];
 	}
 
-	public function acceptLayerDrag(layerIndex: Int) {
-		if (Project.layers[layerIndex].getChildren() != null) return;
-		var n = NodesMaterial.createNode(Context.layerIsMask ? "LAYER_MASK" : "LAYER");
-		n.buttons[0].default_value = layerIndex;
+	public function acceptLayerDrag(index: Int) {
+		pushUndo();
+		if (Project.layers[index].getChildren() != null) return;
+		var g = groupStack.length > 0 ? groupStack[groupStack.length - 1] : null;
+		var n = NodesMaterial.createNode(Context.layerIsMask ? "LAYER_MASK" : "LAYER", g);
+		n.buttons[0].default_value = index;
 		getNodes().nodesSelected = [n];
 	}
 
-	public function acceptMaterialDrag(layerIndex: Int) {
-		var n = NodesMaterial.createNode("MATERIAL");
-		n.buttons[0].default_value = layerIndex;
+	public function acceptMaterialDrag(index: Int) {
+		pushUndo();
+		var g = groupStack.length > 0 ? groupStack[groupStack.length - 1] : null;
+		var n = NodesMaterial.createNode("MATERIAL", g);
+		n.buttons[0].default_value = index;
+		getNodes().nodesSelected = [n];
+	}
+
+	public function acceptSwatchDrag(index: Int) {
+		pushUndo();
+		var g = groupStack.length > 0 ? groupStack[groupStack.length - 1] : null;
+		var n = NodesMaterial.createNode("RGB", g);
+		var color = Project.raw.swatches[index].base;
+		n.outputs[0].default_value = [color.R, color.G, color.B, color.A];
 		getNodes().nodesSelected = [n];
 	}
 
@@ -747,10 +787,10 @@ class UINodes {
 		}
 		if (groupInput != null && groupOutput != null) {
 			for (soc in groupInput.outputs) {
-				node.inputs.push(NodesMaterial.createSocket(nodes, node, soc.type, canvas, soc.min, soc.max, soc.default_value));
+				node.inputs.push(NodesMaterial.createSocket(nodes, node, soc.name, soc.type, canvas, soc.min, soc.max, soc.default_value));
 			}
 			for (soc in groupOutput.inputs) {
-				node.outputs.push(NodesMaterial.createSocket(nodes, node, soc.type, canvas, soc.min, soc.max, soc.default_value));
+				node.outputs.push(NodesMaterial.createSocket(nodes, node, soc.name, soc.type, canvas, soc.min, soc.max, soc.default_value));
 			}
 		}
 		return node;
@@ -776,5 +816,29 @@ class UINodes {
 		Context.nodePreviewDirty = false;
 		UINodes.inst.hwnd.redraws = 2;
 		RenderUtil.makeNodePreview(Context.material.canvas, node, Context.nodePreview);
+	}
+
+	public static function hasGroup(c: TNodeCanvas): Bool {
+		for (n in c.nodes) if (n.type == "GROUP") return true;
+		return false;
+	}
+
+	public static function traverseGroup(mgroups: Array<TNodeCanvas>, c: TNodeCanvas) {
+		for (n in c.nodes) {
+			if (n.type == "GROUP") {
+				if (getGroup(mgroups, n.name) == null) {
+					var canvases: Array<TNodeCanvas> = [];
+					for (g in Project.materialGroups) canvases.push(g.canvas);
+					var group = getGroup(canvases, n.name);
+					mgroups.push(Json.parse(Json.stringify(group)));
+					traverseGroup(mgroups, group);
+				}
+			}
+		}
+	}
+
+	static function getGroup(canvases: Array<TNodeCanvas>, name: String): TNodeCanvas {
+		for (c in canvases) if (c.name == name) return c;
+		return null;
 	}
 }

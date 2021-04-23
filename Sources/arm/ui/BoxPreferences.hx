@@ -177,7 +177,7 @@ class BoxPreferences {
 				ui.text("", 0, h.color);
 				if (ui.isHovered && ui.inputReleased) {
 					UIMenu.draw(function(ui) {
-						ui.fill(0, 0, ui._w / ui.ops.scaleFactor, ui.t.ELEMENT_H * 9, ui.t.SEPARATOR_COL);
+						ui.fill(0, 0, ui._w / ui.SCALE(), ui.t.ELEMENT_H * 9, ui.t.SEPARATOR_COL);
 						ui.changed = false;
 						zui.Ext.colorWheel(ui, h, false, null, false);
 						if (ui.changed) UIMenu.keepOpen = true;
@@ -218,7 +218,7 @@ class BoxPreferences {
 						if (ui.isHovered && ui.inputReleased) {
 							h.color = untyped theme[key];
 							UIMenu.draw(function(ui) {
-								ui.fill(0, 0, ui._w / ui.ops.scaleFactor, ui.t.ELEMENT_H * 6, ui.t.SEPARATOR_COL);
+								ui.fill(0, 0, ui._w / ui.SCALE(), ui.t.ELEMENT_H * 9, ui.t.SEPARATOR_COL);
 								ui.changed = false;
 								untyped theme[key] = zui.Ext.colorWheel(ui, h, false, null, false);
 								if (ui.changed) UIMenu.keepOpen = true;
@@ -247,6 +247,7 @@ class BoxPreferences {
 			if (ui.tab(htab, tr("Usage"), true)) {
 				Context.undoHandle = Id.handle({value: Config.raw.undo_steps});
 				Config.raw.undo_steps = Std.int(ui.slider(Context.undoHandle, tr("Undo Steps"), 1, 64, false, 1));
+				if (Config.raw.undo_steps < 1) Config.raw.undo_steps = Std.int(Context.undoHandle.value = 1);
 				if (Context.undoHandle.changed) {
 					ui.g.end();
 					while (History.undoLayers.length < Config.raw.undo_steps) {
@@ -277,6 +278,15 @@ class BoxPreferences {
 					Config.raw.workspace = workspaceHandle.position;
 				}
 
+				var layerResHandle = Id.handle({position: Config.raw.layer_res});
+				ui.combo(layerResHandle, ["128", "256", "512", "1K", "2K", "4K", "8K"], tr("Default Layer Resolution"), true);
+				if (layerResHandle.changed) {
+					Config.raw.layer_res = layerResHandle.position;
+				}
+
+				var serverHandle = Id.handle({text: Config.raw.server});
+				Config.raw.server = ui.textInput(serverHandle, tr("Cloud Server"));
+
 				var materialLiveHandle = Id.handle({selected: Config.raw.material_live});
 				Config.raw.material_live = ui.check(materialLiveHandle, tr("Live Material Preview"));
 				if (ui.isHovered) ui.tooltip(tr("Instantly update material preview on node change"));
@@ -291,17 +301,17 @@ class BoxPreferences {
 				if (brush3dHandle.changed) MakeMaterial.parsePaintMaterial();
 
 				ui.enabled = Config.raw.brush_3d;
-				var brushDepthRejectHandle = Id.handle({selected: Context.brushDepthReject});
-				Context.brushDepthReject = ui.check(brushDepthRejectHandle, tr("Depth Reject"));
+				var brushDepthRejectHandle = Id.handle({selected: Config.raw.brush_depth_reject});
+				Config.raw.brush_depth_reject = ui.check(brushDepthRejectHandle, tr("Depth Reject"));
 				if (brushDepthRejectHandle.changed) MakeMaterial.parsePaintMaterial();
 
 				ui.row([0.5, 0.5]);
 
-				var brushAngleRejectHandle = Id.handle({selected: Context.brushAngleReject});
-				Context.brushAngleReject = ui.check(brushAngleRejectHandle, tr("Angle Reject"));
+				var brushAngleRejectHandle = Id.handle({selected: Config.raw.brush_angle_reject});
+				Config.raw.brush_angle_reject = ui.check(brushAngleRejectHandle, tr("Angle Reject"));
 				if (brushAngleRejectHandle.changed) MakeMaterial.parsePaintMaterial();
 
-				if (!Context.brushAngleReject) ui.enabled = false;
+				if (!Config.raw.brush_angle_reject) ui.enabled = false;
 				var angleDotHandle = Id.handle({value: Context.brushAngleRejectDot});
 				Context.brushAngleRejectDot = ui.slider(angleDotHandle, tr("Angle"), 0.0, 1.0, true);
 				if (angleDotHandle.changed) {

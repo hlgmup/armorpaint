@@ -149,7 +149,7 @@ class MeshUtil {
 		#end
 	}
 
-	public static function calcNormals() {
+	public static function calcNormals(smooth = false) {
 		var va = new Vec4();
 		var vb = new Vec4();
 		var vc = new Vec4();
@@ -182,37 +182,154 @@ class MeshUtil {
 				vertices[i3 * l + 5] = Std.int(cb.y * 32767);
 				vertices[i3 * l + 3] = Std.int(cb.z * 32767);
 			}
-			// if (smooth) {
-			// 	for (i in 0...inda.length) {
-			// 		var i1 = inda[i];
-			// 		var shared = [i1];
-			// 		for (j in (i + 1)...inda.length) {
-			// 			var i2 = inda[j];
-			// 			if (vertices[i1 * l] == vertices[i2 * l] && vertices[i1 * l + 1] == vertices[i2 * l + 1] && vertices[i1 * l + 2] == vertices[i2 * l + 2]) {
-			// 				// if (n1.dot(n2) > 0)
-			// 				shared.push(i2);
-			// 			}
-			// 		}
-			// 		if (shared.length > 1) {
-			// 			va.set(0, 0, 0);
-			// 			for (i1 in shared) {
-			// 				va.addf(vertices[i1 * l + 4], vertices[i1 * l + 5], vertices[i1 * l + 3]);
-			// 			}
-			// 			va.mult(1 / shared.length);
-			// 			va.normalize();
-			// 			for (i1 in shared) {
-			// 				vertices[i1 * l + 4] = Std.int(va.x * 32767);
-			// 				vertices[i1 * l + 5] = Std.int(va.y * 32767);
-			// 				vertices[i1 * l + 3] = Std.int(va.z * 32767);
-			// 			}
-			// 		}
-			// 	}
-			// }
+
+			if (smooth) {
+				var shared = new Uint32Array(1024);
+				var sharedLen = 0;
+				var found: Array<Int> = [];
+				for (i in 0...(inda.length - 1)) {
+					if (found.indexOf(i) >= 0) continue;
+					var i1 = inda[i];
+					sharedLen = 0;
+					shared[sharedLen++] = i1;
+					for (j in (i + 1)...inda.length) {
+						var i2 = inda[j];
+						var i1l = i1 * l;
+						var i2l = i2 * l;
+						if (vertices[i1l    ] == vertices[i2l    ] &&
+							vertices[i1l + 1] == vertices[i2l + 1] &&
+							vertices[i1l + 2] == vertices[i2l + 2]) {
+							// if (n1.dot(n2) > 0)
+							shared[sharedLen++] = i2;
+							found.push(j);
+							if (sharedLen >= 1024) break;
+						}
+					}
+					if (sharedLen > 1) {
+						va.set(0, 0, 0);
+						for (j in 0...sharedLen) {
+							var i1 = shared[j];
+							var i1l = i1 * l;
+							va.addf(vertices[i1l + 4], vertices[i1l + 5], vertices[i1l + 3]);
+						}
+						va.mult(1 / sharedLen);
+						va.normalize();
+						var vax = Std.int(va.x * 32767);
+						var vay = Std.int(va.y * 32767);
+						var vaz = Std.int(va.z * 32767);
+						for (j in 0...sharedLen) {
+							var i1 = shared[j];
+							var i1l = i1 * l;
+							vertices[i1l + 4] = vax;
+							vertices[i1l + 5] = vay;
+							vertices[i1l + 3] = vaz;
+						}
+					}
+				}
+			}
 			g.vertexBuffer.unlock();
+
+			var va0 = o.data.raw.vertex_arrays[0].values;
+			var va1 = o.data.raw.vertex_arrays[1].values;
+			for (i in 0...Std.int(vertices.length / l)) {
+				va1[i * 2    ] = vertices[i * l + 4];
+				va1[i * 2 + 1] = vertices[i * l + 5];
+				va0[i * 4 + 3] = vertices[i * l + 3];
+			}
 		}
 
 		#if (kha_direct3d12 || kha_vulkan)
+		mergeMesh();
 		arm.render.RenderPathRaytrace.ready = false;
 		#end
+	}
+
+	public static function toOrigin() {
+		var dx = 0.0;
+		var dy = 0.0;
+		var dz = 0.0;
+		for (o in Project.paintObjects) {
+			var l = 4;
+			var sc = o.data.scalePos / 32767;
+			var va = o.data.raw.vertex_arrays[0].values;
+			var minx = va[0];
+			var maxx = va[0];
+			var miny = va[1];
+			var maxy = va[1];
+			var minz = va[2];
+			var maxz = va[2];
+			for (i in 1...Std.int(va.length / l)) {
+				if (va[i * l] < minx) minx = va[i * l];
+				else if (va[i * l] > maxx) maxx = va[i * l];
+				if (va[i * l + 1] < miny) miny = va[i * l + 1];
+				else if (va[i * l + 1] > maxy) maxy = va[i * l + 1];
+				if (va[i * l + 2] < minz) minz = va[i * l + 2];
+				else if (va[i * l + 2] > maxz) maxz = va[i * l + 2];
+			}
+			dx += (minx + maxx) / 2 * sc;
+			dy += (miny + maxy) / 2 * sc;
+			dz += (minz + maxz) / 2 * sc;
+		}
+		dx /= Project.paintObjects.length;
+		dy /= Project.paintObjects.length;
+		dz /= Project.paintObjects.length;
+
+		for (o in Project.paintObjects) {
+			var g = o.data.geom;
+			var sc = o.data.scalePos / 32767;
+			var va = o.data.raw.vertex_arrays[0].values;
+			var maxScale = 0.0;
+			for (i in 0...Std.int(va.length / 4)) {
+				if (Math.abs(va[i * 4    ] * sc - dx) > maxScale) maxScale = Math.abs(va[i * 4    ] * sc - dx);
+				if (Math.abs(va[i * 4 + 1] * sc - dy) > maxScale) maxScale = Math.abs(va[i * 4 + 1] * sc - dy);
+				if (Math.abs(va[i * 4 + 2] * sc - dz) > maxScale) maxScale = Math.abs(va[i * 4 + 2] * sc - dz);
+			}
+			o.transform.scaleWorld = o.data.scalePos = o.data.raw.scale_pos = maxScale;
+			o.transform.buildMatrix();
+
+			for (i in 0...Std.int(va.length / 4)) {
+				va[i * 4    ] = Std.int((va[i * 4    ] * sc - dx) / maxScale * 32767);
+				va[i * 4 + 1] = Std.int((va[i * 4 + 1] * sc - dy) / maxScale * 32767);
+				va[i * 4 + 2] = Std.int((va[i * 4 + 2] * sc - dz) / maxScale * 32767);
+			}
+
+			var l = g.structLength;
+			var vertices = g.vertexBuffer.lockInt16(); // posnortex
+			for (i in 0...Std.int(vertices.length / l)) {
+				vertices[i * l    ] = va[i * 4    ];
+				vertices[i * l + 1] = va[i * 4 + 1];
+				vertices[i * l + 2] = va[i * 4 + 2];
+			}
+			g.vertexBuffer.unlock();
+		}
+
+		mergeMesh();
+	}
+
+	public static function applyDisplacement() {
+		var height = Project.layers[0].texpaint_pack.getPixels();
+		var res = Project.layers[0].texpaint_pack.width;
+		var strength = 0.1;
+		var o = Project.paintObjects[0];
+		var g = o.data.geom;
+		var l = g.structLength;
+		var vertices = g.vertexBuffer.lockInt16(); // posnortex
+		for (i in 0...Std.int(vertices.length / l)) {
+			var x = Std.int(vertices[i * l + 6] / 32767 * res);
+			var y = Std.int(vertices[i * l + 7] / 32767 * res);
+			var h = (1.0 - height.get((y * res + x) * 4 + 3) / 255) * strength;
+			vertices[i * l    ] -= Std.int(vertices[i * l + 4] * h);
+			vertices[i * l + 1] -= Std.int(vertices[i * l + 5] * h);
+			vertices[i * l + 2] -= Std.int(vertices[i * l + 3] * h);
+		}
+		g.vertexBuffer.unlock();
+
+		var va0 = o.data.raw.vertex_arrays[0].values;
+		var va1 = o.data.raw.vertex_arrays[1].values;
+		for (i in 0...Std.int(vertices.length / l)) {
+			va0[i * 4    ] = vertices[i * l    ];
+			va0[i * 4 + 1] = vertices[i * l + 1];
+			va0[i * 4 + 2] = vertices[i * l + 2];
+		}
 	}
 }

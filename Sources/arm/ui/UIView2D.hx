@@ -33,6 +33,7 @@ class UIView2D {
 	public var panY = 0.0;
 	public var panScale = 1.0;
 	var texType = TexBase;
+	var layerMode = View2DSelected;
 	var uvmapShow = false;
 	var tiledShow = false;
 
@@ -63,6 +64,11 @@ class UIView2D {
 		ww = Config.raw.layout[LayoutNodesW];
 		wx = Std.int(iron.App.w()) + UIToolbar.inst.toolbarw;
 		wy = UIHeader.inst.headerh * 2;
+		if (!UISidebar.inst.show) {
+			ww += Config.raw.layout[LayoutSidebarW] + UIToolbar.inst.toolbarw;
+			wx -= UIToolbar.inst.toolbarw;
+			wy = 0;
+		}
 
 		if (!show) return;
 		if (System.windowWidth() == 0 || System.windowHeight() == 0) return;
@@ -105,6 +111,14 @@ class UIView2D {
 				if (Config.raw.brush_live && RenderPathPaint.liveLayerDrawn > 0) {
 					layer = RenderPathPaint.liveLayer;
 				}
+
+				if (layerMode == View2DVisible) {
+					var current = @:privateAccess kha.graphics2.Graphics.current;
+					if (current != null) current.end();
+					layer = untyped Layers.flatten();
+					if (current != null) current.begin(false);
+				}
+
 				tex =
 					Context.layerIsMask   ? layer.texpaint_mask :
 					texType == TexBase    ? layer.texpaint :
@@ -118,6 +132,7 @@ class UIView2D {
 					texType == TexRoughness ? 2 :
 					texType == TexMetallic  ? 3 :
 					texType == TexOpacity   ? 4 :
+					texType == TexHeight    ? 4 :
 					texType == TexNormal    ? 5 :
 											  0;
 			}
@@ -221,6 +236,13 @@ class UIView2D {
 			ui._w = ew;
 
 			if (type == View2DLayer) {
+				layerMode = ui.combo(Id.handle({position: layerMode}), [
+					tr("Visible"),
+					tr("Selected"),
+				], tr("Layers"));
+				ui._x += ew + 3;
+				ui._y = 2;
+
 				if (!Context.layerIsMask) {
 					texType = ui.combo(Id.handle({position: texType}), [
 						tr("Base Color"),
@@ -229,6 +251,7 @@ class UIView2D {
 						tr("Roughness"),
 						tr("Metallic"),
 						tr("Opacity"),
+						tr("Height"),
 					], tr("Texture"));
 					ui._x += ew + 3;
 					ui._y = 2;
@@ -301,5 +324,15 @@ class UIView2D {
 		else if (kb.started("right")) panX += 5;
 		if (kb.started("up")) panY -= 5;
 		else if (kb.started("down")) panY += 5;
+
+		// Limit panning to keep texture in viewport
+		var border = 32;
+		var tw = ww * 0.95 * panScale;
+		var tx = ww / 2 - tw / 2 + panX;
+		var ty = iron.App.h() / 2 - tw / 2 + panY;
+		if      (tx + border >  ww) panX =  ww / 2 + tw / 2 - border;
+		else if (tx - border < -tw) panX = -tw / 2 - ww / 2 + border;
+		if      (ty + border >  wh) panY =  wh / 2 + tw / 2 - border;
+		else if (ty - border < -tw) panY = -tw / 2 - wh / 2 + border;
 	}
 }

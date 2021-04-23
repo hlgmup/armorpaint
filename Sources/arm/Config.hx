@@ -9,6 +9,7 @@ import arm.ui.UINodes;
 import arm.ui.UIView2D;
 import arm.ui.UIStatus;
 import arm.render.Inc;
+import arm.sys.File;
 import arm.sys.Path;
 import arm.Enums;
 import arm.ConfigFormat;
@@ -28,7 +29,20 @@ class Config {
 				done();
 			});
 		}
-		catch (e: Dynamic) { done(); }
+		catch (e: Dynamic) {
+			#if krom_linux
+			try { // Protected directory
+				Data.getBlob(Krom.savePath() + "config.arm", function(blob: kha.Blob) {
+					configLoaded = true;
+					raw = Json.parse(blob.toString());
+					done();
+				});
+			}
+			catch (e: Dynamic) { done(); }
+			#else
+			done();
+			#end
+		}
 	}
 
 	public static function save() {
@@ -37,6 +51,10 @@ class Config {
 		var path = (Path.isProtected() ? Krom.savePath() : Path.data() + Path.sep) + "config.arm";
 		var bytes = Bytes.ofString(Json.stringify(raw));
 		Krom.fileSaveBytes(path, bytes.getData());
+
+		#if krom_linux // Protected directory
+		if (!File.exists(path)) Krom.fileSaveBytes(Krom.savePath() + "config.arm", bytes.getData());
+		#end
 	}
 
 	public static function init() {
@@ -99,6 +117,8 @@ class Config {
 			raw.material_live = true;
 			#end
 			raw.brush_3d = true;
+			raw.brush_depth_reject = true;
+			raw.brush_angle_reject = true;
 			raw.brush_live = false;
 			raw.camera_speed = 1.0;
 			raw.zoom_direction = ZoomVertical;
@@ -106,6 +126,7 @@ class Config {
 			raw.show_asset_names = false;
 			raw.node_preview = true;
 			raw.workspace = 0;
+			raw.layer_res = Res2048;
 			raw.dilate = DilateInstant;
 			raw.dilate_radius = 2;
 			raw.server = "https://armorpaint.fra1.digitaloceanspaces.com";
@@ -123,6 +144,7 @@ class Config {
 			}
 		}
 
+		App.resHandle.position = raw.layer_res;
 		loadKeymap();
 	}
 

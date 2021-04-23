@@ -44,32 +44,38 @@ class UIHeader {
 				if (Project.assets.length > 0) ui.image(Project.getImage(Project.assets[cid]));
 			}
 			else if (Context.tool == ToolPicker) {
-				Context.baseRPicked = Math.round(Context.baseRPicked * 10) / 10;
-				Context.baseGPicked = Math.round(Context.baseGPicked * 10) / 10;
-				Context.baseBPicked = Math.round(Context.baseBPicked * 10) / 10;
-				Context.normalRPicked = Math.round(Context.normalRPicked * 10) / 10;
-				Context.normalGPicked = Math.round(Context.normalGPicked * 10) / 10;
-				Context.normalBPicked = Math.round(Context.normalBPicked * 10) / 10;
-				Context.occlusionPicked = Math.round(Context.occlusionPicked * 100) / 100;
-				Context.roughnessPicked = Math.round(Context.roughnessPicked * 100) / 100;
-				Context.metallicPicked = Math.round(Context.metallicPicked * 100) / 100;
-				var baseRPicked = Context.baseRPicked;
-				var baseGPicked = Context.baseGPicked;
-				var baseBPicked = Context.baseBPicked;
-				var normalRPicked = Context.normalRPicked;
-				var normalGPicked = Context.normalGPicked;
-				var normalBPicked = Context.normalBPicked;
-				var occlusionPicked = Context.occlusionPicked;
-				var roughnessPicked = Context.roughnessPicked;
-				var metallicPicked = Context.metallicPicked;
+				var baseRPicked = Math.round(Context.swatch.base.R * 10) / 10;
+				var baseGPicked = Math.round(Context.swatch.base.G * 10) / 10;
+				var baseBPicked = Math.round(Context.swatch.base.B * 10) / 10;
+				var normalRPicked = Math.round(Context.swatch.normal.R * 10) / 10;
+				var normalGPicked = Math.round(Context.swatch.normal.G * 10) / 10;
+				var normalBPicked = Math.round(Context.swatch.normal.B * 10) / 10;
+				var occlusionPicked = Math.round(Context.swatch.occlusion * 100) / 100;
+				var roughnessPicked = Math.round(Context.swatch.roughness * 100) / 100;
+				var metallicPicked = Math.round(Context.swatch.metallic * 100) / 100;
 				#if kha_metal
 				ui.text('TODO'); // Skips first draw
 				#end
-				ui.text(tr("Base") + ' $baseRPicked,$baseGPicked,$baseBPicked');
-				ui.text(tr("Nor") + ' $normalRPicked,$normalGPicked,$normalBPicked');
-				ui.text(tr("Occlusion") + ' $occlusionPicked');
-				ui.text(tr("Roughness") + ' $roughnessPicked');
-				ui.text(tr("Metallic") + ' $metallicPicked');
+
+				var h = Id.handle();
+				h.color.R = baseRPicked;
+				h.color.G = baseGPicked;
+				h.color.B = baseBPicked;
+				ui.text("", 0, h.color);
+				if (ui.isHovered && ui.inputReleased) {
+					UIMenu.draw(function(ui) {
+						ui.fill(0, 0, ui._w / ui.ops.scaleFactor, ui.t.ELEMENT_H * 9, ui.t.SEPARATOR_COL);
+						ui.changed = false;
+						zui.Ext.colorWheel(ui, h, false, null, false);
+						if (ui.changed) UIMenu.keepOpen = true;
+					}, 3);
+				}
+
+				ui.text(tr("Base") + ' ($baseRPicked,$baseGPicked,$baseBPicked)');
+				ui.text(tr("Normal") + ' ($normalRPicked,$normalGPicked,$normalBPicked)');
+				ui.text(tr("Occlusion") + ' ($occlusionPicked)');
+				ui.text(tr("Roughness") + ' ($roughnessPicked)');
+				ui.text(tr("Metallic") + ' ($metallicPicked)');
 				Context.pickerSelectMaterial = ui.check(Id.handle({selected: Context.pickerSelectMaterial}), tr("Select Material"));
 				ui.combo(Context.pickerMaskHandle, [tr("None"), tr("Material")], tr("Mask"), true);
 				if (Context.pickerMaskHandle.changed) {
@@ -78,6 +84,26 @@ class UIHeader {
 			}
 			else if (Context.tool == ToolBake) {
 				ui.changed = false;
+
+				var rtBake = Context.bakeType == BakeAO || Context.bakeType == BakeLightmap || Context.bakeType == BakeBentNormal || Context.bakeType == BakeThickness;
+				var baking = false;
+
+				#if (kha_direct3d12 || kha_vulkan)
+				baking = Context.pdirty > 0;
+				if (baking && ui.button(tr("Stop"))) {
+					Context.pdirty = 0;
+					Context.rdirty = 2;
+				}
+				#end
+
+				if (!baking && ui.button(tr("Bake"))) {
+					Context.pdirty = rtBake ? Context.bakeSamples : 1;
+					Context.rdirty = 3;
+					Context.layerPreviewDirty = true;
+					UISidebar.inst.hwnd0.redraws = 2;
+					History.pushUndo = true;
+				}
+
 				var bakeHandle = Id.handle({position: Context.bakeType});
 				var bakes = [
 					tr("AO"),
@@ -98,6 +124,14 @@ class UIHeader {
 				bakes.push(tr("Thickness"));
 				#end
 				Context.bakeType = ui.combo(bakeHandle, bakes, tr("Bake"));
+
+				#if (kha_direct3d12 || kha_vulkan)
+				if (rtBake) {
+					var samplesHandle = Id.handle({value: Context.bakeSamples});
+					Context.bakeSamples = Std.int(ui.slider(samplesHandle, tr("Samples"), 1, 512, true, 1));
+				}
+				#end
+
 				if (Context.bakeType == BakeNormalObject || Context.bakeType == BakePosition || Context.bakeType == BakeBentNormal) {
 					var bakeUpAxisHandle = Id.handle({position: Context.bakeUpAxis});
 					Context.bakeUpAxis = ui.combo(bakeUpAxisHandle, [tr("Z"), tr("Y")], tr("Up Axis"), true);
@@ -115,7 +149,7 @@ class UIHeader {
 					Context.bakeAoOffset = ui.slider(offsetHandle, tr("Offset"), 0.0, 2.0, true);
 				}
 				#if (kha_direct3d12 || kha_vulkan)
-				if (Context.bakeType == BakeAO || Context.bakeType == BakeLightmap || Context.bakeType == BakeBentNormal || Context.bakeType == BakeThickness) {
+				if (rtBake) {
 					ui.text(tr("Rays/pix:") + ' ${arm.render.RenderPathRaytrace.raysPix}');
 					ui.text(tr("Rays/sec:") + ' ${arm.render.RenderPathRaytrace.raysSec}');
 				}

@@ -21,6 +21,7 @@ import arm.ui.UIFiles;
 import arm.ui.UIHeader;
 import arm.ui.UIStatus;
 import arm.ui.UIMenubar;
+import arm.ui.TabSwatches;
 import arm.ui.TabLayers;
 import arm.ui.BoxExport;
 import arm.io.ImportAsset;
@@ -47,8 +48,10 @@ class App {
 	public static var dragMaterial: MaterialSlot = null;
 	public static var dragLayer: LayerSlot = null;
 	public static var dragAsset: TAsset = null;
+	public static var dragSwatch: TSwatchColor = null;
 	public static var dragFile: String = null;
 	public static var dragTint = 0xffffffff;
+	public static var dragSize = -1;
 	public static var dragRect: TRect = null;
 	public static var dragOffX = 0.0;
 	public static var dragOffY = 0.0;
@@ -62,7 +65,7 @@ class App {
 	public static var defaultElementW = 100;
 	public static var defaultElementH = 28;
 	public static var defaultFontSize = 13;
-	public static var resHandle = new Handle({position: Res2048});
+	public static var resHandle = new Handle();
 	public static var bitsHandle = new Handle();
 	static var dropPaths: Array<String> = [];
 	static var appx = 0;
@@ -316,7 +319,11 @@ class App {
 		}
 
 		if (UINodes.inst.grid != null) {
-			UINodes.inst.grid.unload();
+			var _grid = UINodes.inst.grid;
+			function _next() {
+				_grid.unload();
+			}
+			App.notifyOnNextFrame(_next);
 			UINodes.inst.grid = null;
 		}
 
@@ -345,11 +352,11 @@ class App {
 			Krom.setMouseCursor(0); // Arrow
 		}
 
-		if ((dragAsset != null || dragMaterial != null || dragLayer != null || dragFile != null) &&
-			(mouse.movementX != 0 || mouse.movementY != 0)) {
+		var hasDrag = dragAsset != null || dragMaterial != null || dragLayer != null || dragFile != null || dragSwatch != null;
+		if (hasDrag && (mouse.movementX != 0 || mouse.movementY != 0)) {
 			isDragging = true;
 		}
-		if (mouse.released() && (dragAsset != null || dragMaterial != null || dragLayer != null || dragFile != null)) {
+		if (mouse.released() && hasDrag) {
 			var mx = mouse.x;
 			var my = mouse.y;
 			var inViewport = Context.paintVec.x < 1 && Context.paintVec.x > 0 &&
@@ -364,14 +371,7 @@ class App {
 						  my > UINodes.inst.wy && my < UINodes.inst.wy + UINodes.inst.wh;
 			if (dragAsset != null) {
 				if (inNodes) { // Create image texture
-					var index = 0;
-					for (i in 0...Project.assets.length) {
-						if (Project.assets[i] == dragAsset) {
-							index = i;
-							break;
-						}
-					}
-					UINodes.inst.acceptAssetDrag(index);
+					UINodes.inst.acceptAssetDrag(Project.assets.indexOf(dragAsset));
 				}
 				else if (inLayers || in2dView) { // Create mask
 					Layers.createImageMask(dragAsset);
@@ -384,6 +384,12 @@ class App {
 				}
 				dragAsset = null;
 			}
+			else if (dragSwatch != null) {
+				if (inNodes) { // Create RGB node
+					UINodes.inst.acceptSwatchDrag(Project.raw.swatches.indexOf(dragSwatch));
+				}
+				dragSwatch = null;
+			}
 			else if (dragMaterial != null) {
 				// Material dragged onto viewport or layers tab
 				if (inViewport || inLayers || in2dView) {
@@ -392,27 +398,13 @@ class App {
 					Layers.createFillLayer(uvType, decalMat);
 				}
 				else if (inNodes) {
-					var index = 0;
-					for (i in 0...Project.materials.length) {
-						if (Project.materials[i] == dragMaterial) {
-							index = i;
-							break;
-						}
-					}
-					UINodes.inst.acceptMaterialDrag(index);
+					UINodes.inst.acceptMaterialDrag(Project.materials.indexOf(dragMaterial));
 				}
 				dragMaterial = null;
 			}
 			else if (dragLayer != null) {
 				if (inNodes) {
-					var index = 0;
-					for (i in 0...Project.layers.length) {
-						if (Project.layers[i] == dragLayer) {
-							index = i;
-							break;
-						}
-					}
-					UINodes.inst.acceptLayerDrag(index);
+					UINodes.inst.acceptLayerDrag(Project.layers.indexOf(dragLayer));
 				}
 				else if (inLayers && isDragging) {
 					dragLayer.move(Context.dragDestination);
@@ -476,16 +468,30 @@ class App {
 
 	static function getDragBackground(): TRect {
 		var icons = Res.get("icons.k");
-		if (dragLayer != null && dragLayer.getChildren() == null) return Res.tile50(icons, 4, 1);
-		else return null;
+		if (dragLayer != null && dragLayer.getChildren() == null && ((dragLayer.fill_layer == null && !Context.layerIsMask) || (dragLayer.fill_mask == null && Context.layerIsMask))) {
+			return Res.tile50(icons, 4, 1);
+		}
+		return null;
 	}
 
 	static function getDragImage(): kha.Image {
 		dragTint = 0xffffffff;
+		dragSize = -1;
 		dragRect = null;
-		if (dragAsset != null) return Project.getImage(dragAsset);
-		if (dragMaterial != null) return dragMaterial.imageIcon;
-		if (dragLayer != null && Context.layerIsMask) return dragLayer.texpaint_mask_preview;
+		if (dragAsset != null) {
+			return Project.getImage(dragAsset);
+		}
+		if (dragSwatch != null) {
+			dragTint = dragSwatch.base;
+			dragSize = 26;
+			return TabSwatches.empty;
+		}
+		if (dragMaterial != null) {
+			return dragMaterial.imageIcon;
+		}
+		if (dragLayer != null && Context.layerIsMask) {
+			return dragLayer.fill_mask != null ? dragLayer.fill_mask.imageIcon : dragLayer.texpaint_mask_preview;
+		}
 		if (dragLayer != null && dragLayer.getChildren() != null) {
 			var icons = Res.get("icons.k");
 			var folderClosed = Res.tile50(icons, 2, 1);
@@ -500,7 +506,10 @@ class App {
 			dragTint = UISidebar.inst.ui.t.HIGHLIGHT_COL;
 			return icons;
 		}
-		else return dragLayer.texpaint_preview;
+		if (dragLayer != null) {
+			return dragLayer.fill_layer != null ? dragLayer.fill_layer.imageIcon : dragLayer.texpaint_preview;
+		}
+		return null;
 	}
 
 	static function render(g: kha.graphics2.Graphics) {
@@ -512,7 +521,6 @@ class App {
 			MakeMaterial.parseMeshMaterial();
 			MakeMaterial.parsePaintMaterial();
 			Context.ddirty = 0;
-			History.reset();
 			if (History.undoLayers == null) {
 				History.undoLayers = [];
 				for (i in 0...Config.raw.undo_steps) {
@@ -546,13 +554,13 @@ class App {
 		if (isDragging) {
 			Krom.setMouseCursor(1); // Hand
 			var img = getDragImage();
-			var size = 50 * UISidebar.inst.ui.ops.scaleFactor;
+			var size = (dragSize == -1 ? 50 : dragSize) * UISidebar.inst.ui.ops.scaleFactor;
 			var ratio = size / img.width;
 			var h = img.height * ratio;
 			#if (kha_direct3d11 || kha_direct3d12 || kha_metal || kha_vulkan)
 			var inv = 0;
 			#else
-			var inv = (dragMaterial != null || dragLayer != null) ? h : 0;
+			var inv = (dragMaterial != null || (dragLayer != null && ((dragLayer.fill_layer != null && !Context.layerIsMask) || (dragLayer.fill_mask != null && Context.layerIsMask)))) ? h : 0;
 			#end
 			g.color = dragTint;
 			var bgRect = getDragBackground();

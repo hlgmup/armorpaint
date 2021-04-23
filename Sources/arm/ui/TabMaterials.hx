@@ -12,7 +12,6 @@ import arm.node.MakeMaterial;
 import arm.data.MaterialSlot;
 import arm.util.RenderUtil;
 import arm.util.MaterialUtil;
-import arm.io.ExportArm;
 import arm.sys.Path;
 import arm.Enums;
 
@@ -43,7 +42,7 @@ class TabMaterials {
 			if (ui.button(tr("Nodes"))) {
 				UISidebar.inst.showMaterialNodes();
 			}
-			else if (ui.isHovered) ui.tooltip(tr("Show Node Editor") + ' (${Config.keymap.toggle_2d_view})');
+			else if (ui.isHovered) ui.tooltip(tr("Show Node Editor") + ' (${Config.keymap.toggle_node_editor})');
 			ui.endSticky();
 			ui.separator(3, false);
 
@@ -63,6 +62,7 @@ class TabMaterials {
 					var i = j + row * num;
 					if (i >= materials.length) {
 						@:privateAccess ui.endElement(imgw);
+						if (Config.raw.show_asset_names) @:privateAccess ui.endElement(0);
 						continue;
 					}
 					var img = ui.SCALE() > 1 ? materials[i].image : materials[i].imageIcon;
@@ -121,11 +121,7 @@ class TabMaterials {
 
 							if (ui.button(tr("Export"), Left)) {
 								selectMaterial(i);
-								UIFiles.show("arm", true, function(path: String) {
-									var f = UIFiles.filename;
-									if (f == "") f = tr("untitled");
-									ExportArm.runMaterial(path + Path.sep + f);
-								});
+								BoxExport.showMaterial();
 							}
 
 							if (ui.button(tr("Bake"), Left)) {
@@ -149,6 +145,7 @@ class TabMaterials {
 								materials.splice(i, 1);
 								UISidebar.inst.hwnd1.redraws = 2;
 								for (m in Project.materials) updateMaterialPointers(m.canvas.nodes, i);
+								for (n in m.canvas.nodes) UINodes.onNodeRemove(n);
 							}
 
 							var baseHandle = Id.handle().nest(m.id, {selected: m.paintBase});
@@ -189,7 +186,11 @@ class TabMaterials {
 						ui._x = uix;
 						ui._y += slotw * 0.9;
 						ui.text(materials[i].canvas.name, Center);
+						if (ui.isHovered) ui.tooltip(materials[i].canvas.name);
 						ui._y -= slotw * 0.9;
+						if (i == materials.length - 1) {
+							ui._y += j == num - 1 ? imgw : imgw + ui.ELEMENT_H() + ui.ELEMENT_OFFSET();
+						}
 					}
 				}
 

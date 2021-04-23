@@ -89,6 +89,11 @@ class UISidebar {
 			Context.layer = Project.layers[0];
 		}
 
+		if (Project.raw.swatches == null) {
+			Project.setDefaultSwatches();
+			Context.swatch = Project.raw.swatches[0];
+		}
+
 		if (Context.emptyEnvmap == null) {
 			var b = Bytes.alloc(4);
 			b.set(0, 3);
@@ -115,6 +120,8 @@ class UISidebar {
 		}
 		world.envmap = Context.showEnvmap ? Context.savedEnvmap : Context.emptyEnvmap;
 		Context.ddirty = 1;
+
+		History.reset();
 
 		var scale = Config.raw.window_scale;
 		ui = new Zui( { theme: App.theme, font: App.font, scaleFactor: scale, color_wheel: App.colorWheel } );
@@ -560,6 +567,7 @@ class UISidebar {
 						}
 
 						History.pushUndo = true;
+
 						if (Context.tool == ToolClone && Context.cloneStartX >= 0.0) { // Clone delta
 							Context.cloneDeltaX = (Context.cloneStartX - mx) / ww;
 							Context.cloneDeltaY = (Context.cloneStartY - my) / iron.App.h();
@@ -681,6 +689,7 @@ class UISidebar {
 			TabTextures.draw();
 			TabMeshes.draw();
 			TabFonts.draw();
+			TabSwatches.draw();
 		}
 
 		ui.end();
@@ -759,39 +768,42 @@ class UISidebar {
 						  my > UINodes.inst.wy && my < UINodes.inst.wy + UINodes.inst.wh;
 			var decal = Context.tool == ToolDecal || Context.tool == ToolText;
 
-			if (!Config.raw.brush_3d || in2dView || (decal && !Config.raw.brush_live)) {
+			if (!Config.raw.brush_3d || in2dView || decal) {
 				var decalMask = decal && Operator.shortcut(Config.keymap.decal_mask, ShortcutDown);
 				if (decal && !inNodes) {
-					var psizex = Std.int(256 * ui.SCALE() * (Context.brushRadius * Context.brushNodesRadius * Context.brushScaleX));
-					var psizey = Std.int(256 * ui.SCALE() * (Context.brushRadius * Context.brushNodesRadius));
 					var decalAlpha = 0.5;
 					if (!decalMask) {
 						Context.decalX = Context.paintVec.x;
 						Context.decalY = Context.paintVec.y;
 						decalAlpha = Context.brushOpacity;
+
+						// Radius being scaled
+						if (Context.brushLocked) {
+							Context.decalX += (Context.lockStartedX - System.windowWidth() / 2) / App.w();
+							Context.decalY += (Context.lockStartedY - System.windowHeight() / 2) / App.h();
+						}
 					}
 
-					Context.viewIndex = Context.viewIndexLast;
-					var decalX = App.x() + Context.decalX * App.w() - psizex / 2;
-					var decalY = App.y() + Context.decalY * App.h() - psizey / 2;
-					Context.viewIndex = -1;
+					if (!Config.raw.brush_live) {
+						var psizex = Std.int(256 * ui.SCALE() * (Context.brushRadius * Context.brushNodesRadius * Context.brushScaleX));
+						var psizey = Std.int(256 * ui.SCALE() * (Context.brushRadius * Context.brushNodesRadius));
 
-					// Radius being scaled
-					if (Context.brushLocked && !decalMask) {
-						decalX += Context.lockStartedX - System.windowWidth() / 2;
-						decalY += Context.lockStartedY - System.windowHeight() / 2;
+						Context.viewIndex = Context.viewIndexLast;
+						var decalX = App.x() + Context.decalX * App.w() - psizex / 2;
+						var decalY = App.y() + Context.decalY * App.h() - psizey / 2;
+						Context.viewIndex = -1;
+
+						g.color = kha.Color.fromFloats(1, 1, 1, decalAlpha);
+						var angle = (Context.brushAngle + Context.brushNodesAngle) * (Math.PI / 180);
+						g.pushRotation(-angle, decalX + psizex / 2, decalY + psizey / 2);
+						#if (kha_direct3d11 || kha_direct3d12 || kha_metal || kha_vulkan)
+						g.drawScaledImage(Context.decalImage, decalX, decalY, psizex, psizey);
+						#else
+						g.drawScaledImage(Context.decalImage, decalX, decalY + psizey, psizex, -psizey);
+						#end
+						g.popTransformation();
+						g.color = 0xffffffff;
 					}
-
-					g.color = kha.Color.fromFloats(1, 1, 1, decalAlpha);
-					var angle = (Context.brushAngle + Context.brushNodesAngle) * (Math.PI / 180);
-					g.pushRotation(-angle, decalX + psizex / 2, decalY + psizey / 2);
-					#if (kha_direct3d11 || kha_direct3d12 || kha_metal || kha_vulkan)
-					g.drawScaledImage(Context.decalImage, decalX, decalY, psizex, psizey);
-					#else
-					g.drawScaledImage(Context.decalImage, decalX, decalY + psizey, psizex, -psizey);
-					#end
-					g.popTransformation();
-					g.color = 0xffffffff;
 				}
 				if (Context.tool == ToolBrush  ||
 					Context.tool == ToolEraser ||
@@ -889,7 +901,7 @@ class UISidebar {
 			Krom.setMouseCursor(3) : // Horizontal
 			Krom.setMouseCursor(4);  // Vertical
 
-		if (ui.inputStarted) {
+		if (Zui.current.inputStarted) {
 			borderStarted = side;
 			borderHandle = handle;
 			App.isResizing = true;

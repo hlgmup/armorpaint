@@ -14,10 +14,7 @@ let project = new Project("ArmorPaint");
 project.addSources("Sources");
 project.addLibrary("iron");
 project.addLibrary("zui");
-project.addLibrary("syslib");
-project.addLibrary("formatlib");
-project.addLibrary("geomlib");
-project.addLibrary("shaderlib");
+project.addLibrary("armorbase");
 project.addShaders("Shaders/common/*.glsl", { embed: snapshot});
 project.addAssets("Assets/common/*", { destination: "data/{name}", embed: snapshot });
 if (!snapshot) {
@@ -39,6 +36,7 @@ project.addDefine("js-es=6");
 project.addParameter("--macro include('arm.node.brush')");
 project.addDefine("kha_no_ogg");
 project.addDefine("zui_translate");
+project.addDefine("arm_data_dir");
 project.addDefine("arm_ltc");
 project.addDefine("arm_appwh");
 project.addDefine("arm_skip_envmap");
@@ -48,10 +46,6 @@ project.addDefine("arm_veloc");
 project.addDefine("arm_particles");
 // project.addDefine("arm_physics");
 // project.addDefine("arm_skin");
-
-if (!android) {
-	project.addDefine("arm_data_dir");
-}
 
 if (android) {
 	project.addDefine("krom_android");
@@ -100,14 +94,13 @@ if (snapshot) {
 project.addAssets("Assets/readme/readme.txt", { destination: "{name}" });
 
 if (raytrace) {
-	project.addLibrary("renderlib");
-	project.addAssets("Libraries/renderlib/Assets/*", { destination: "data/{name}", embed: snapshot });
+	project.addAssets("Libraries/armorbase/Assets/*", { destination: "data/{name}", embed: snapshot });
 	if (d3d12) {
-		project.addAssets("Libraries/renderlib/Shaders/*.cso", { destination: "data/{name}", embed: snapshot });
+		project.addAssets("Libraries/armorbase/Shaders/*.cso", { destination: "data/{name}", embed: snapshot });
 		project.addAssets("Assets/readme/readme_dxr.txt", { destination: "{name}" });
 	}
 	else if (vulkan) {
-		project.addAssets("Libraries/renderlib/Shaders/*.spirv", { destination: "data/{name}", embed: snapshot });
+		project.addAssets("Libraries/armorbase/Shaders/*.spirv", { destination: "data/{name}", embed: snapshot });
 		project.addAssets("Assets/readme/readme_vkrt.txt", { destination: "{name}" });
 	}
 }

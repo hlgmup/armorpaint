@@ -51,8 +51,8 @@ class Context {
 	public static var nodePreviewDirty = false;
 	public static var nodePreviewSocket = 0;
 	public static var nodePreview: Image = null;
-	public static var nodePreviewsBlur: Map<String, Image> = null;
-	public static var nodePreviewsWarp: Map<String, Image> = null;
+	public static var nodePreviews: Map<String, Image> = null;
+	public static var nodePreviewsUsed: Array<String> = null;
 
 	public static var colorIdPicked = false;
 	public static var splitView = false;
@@ -60,15 +60,8 @@ class Context {
 	public static var viewIndexLast = -1;
 	public static var materialPreview = false; // Drawing material previews
 	public static var savedCamera = Mat4.identity();
-	public static var baseRPicked = 0.0;
-	public static var baseGPicked = 0.0;
-	public static var baseBPicked = 0.0;
-	public static var normalRPicked = 0.0;
-	public static var normalGPicked = 0.0;
-	public static var normalBPicked = 0.0;
-	public static var roughnessPicked = 0.0;
-	public static var metallicPicked = 0.0;
-	public static var occlusionPicked = 0.0;
+
+	public static var swatch: TSwatchColor;
 	public static var materialIdPicked = 0;
 	public static var uvxPicked = 0.0;
 	public static var uvyPicked = 0.0;
@@ -82,7 +75,6 @@ class Context {
 	public static var norYPicked = 0.0;
 	public static var norZPicked = 0.0;
 
-	public static var defaultEnvmap: Image = null;
 	public static var defaultIrradiance: kha.arrays.Float32Array = null;
 	public static var defaultRadiance: Image = null;
 	public static var defaultRadianceMipmaps: Array<Image> = null;
@@ -115,7 +107,11 @@ class Context {
 	public static var decalPreview = false;
 	public static var decalX = 0.0;
 	public static var decalY = 0.0;
+	#if (kha_direct3d12 || kha_vulkan)
+	public static var viewportMode = ViewPathTrace;
+	#else
 	public static var viewportMode = ViewLit;
+	#end
 	#if (krom_android || krom_ios || arm_vr)
 	public static var renderMode = RenderForward;
 	#else
@@ -128,6 +124,8 @@ class Context {
 	public static var hscaleWasChanged = false;
 	public static var exportMeshFormat = FormatObj;
 	public static var cacheDraws = false;
+	public static var packAssetsOnExport = true;
+	public static var writeIconOnExport = false;
 
 	public static var textToolImage: Image = null;
 	public static var textToolText: String;
@@ -204,12 +202,11 @@ class Context {
 	public static var brushLazyX = 0.0;
 	public static var brushLazyY = 0.0;
 	public static var brushPaint = UVMap;
-	public static var brushDepthReject = true;
-	public static var brushAngleReject = true;
 	public static var brushAngleRejectDot = 0.5;
 	public static var bakeType = BakeAO;
 	public static var bakeAxis = BakeXYZ;
 	public static var bakeUpAxis = BakeUpZ;
+	public static var bakeSamples = 128;
 	public static var bakeAoStrength = 1.0;
 	public static var bakeAoRadius = 1.0;
 	public static var bakeAoOffset = 1.0;
@@ -310,6 +307,15 @@ class Context {
 		RenderUtil.makeDecalPreview();
 		UISidebar.inst.hwnd2.redraws = 2;
 		UIView2D.inst.hwnd.redraws = 2;
+	}
+
+	public static function setSwatch(s: TSwatchColor) {
+		swatch = s;
+		App.notifyOnNextFrame(function() {
+			MakeMaterial.parsePaintMaterial();
+			RenderUtil.makeMaterialPreview();
+			UISidebar.inst.hwnd1.redraws = 2;
+		});
 	}
 
 	public static function setLayer(l: LayerSlot, isMask = false) {

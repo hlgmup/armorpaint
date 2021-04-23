@@ -7,6 +7,7 @@ import iron.system.ArmPack;
 import iron.system.Lz4;
 import arm.data.FontSlot;
 import arm.ui.UISidebar;
+import arm.ui.UINodes;
 import arm.sys.Path;
 import arm.ProjectFormat;
 import arm.Enums;
@@ -46,9 +47,9 @@ class ExportArm {
 		var md: Array<TMeshData> = [];
 		for (p in Project.paintObjects) md.push(p.data.raw);
 
-		var texture_files = assetsToFiles(Project.assets);
-		var font_files = fontsToFiles(Project.fonts);
-		var mesh_files = meshesToFiles();
+		var texture_files = assetsToFiles(Project.filepath, Project.assets);
+		var font_files = fontsToFiles(Project.filepath, Project.fonts);
+		var mesh_files = meshesToFiles(Project.filepath);
 
 		var bitsPos = App.bitsHandle.position;
 		var bpp = bitsPos == Bits8 ? 8 : bitsPos == Bits16 ? 16 : 32;
@@ -80,11 +81,16 @@ class ExportArm {
 				paint_rough: l.paintRough,
 				paint_met: l.paintMet,
 				paint_nor: l.paintNor,
+				paint_nor_blend: l.paintNorBlend,
 				paint_height: l.paintHeight,
+				paint_height_blend: l.paintHeightBlend,
 				paint_emis: l.paintEmis,
 				paint_subs: l.paintSubs
 			});
 		}
+
+		var packed_assets = Project.raw.packed_assets == null || Project.raw.packed_assets.length == 0 ? null : Project.raw.packed_assets;
+		var sameDrive = Project.raw.envmap != null ? Project.filepath.charAt(0) == Project.raw.envmap.charAt(0) : true;
 
 		Project.raw = {
 			version: Main.version,
@@ -98,6 +104,13 @@ class ExportArm {
 			mesh_assets: mesh_files,
 			atlas_objects: Project.atlasObjects,
 			atlas_names: Project.atlasNames,
+			swatches: Project.raw.swatches,
+			packed_assets: packed_assets,
+			envmap: Project.raw.envmap != null ? (sameDrive ? Path.toRelative(Project.filepath, Project.raw.envmap) : Project.raw.envmap) : null,
+			envmap_strength: iron.Scene.active.world.probe.raw.strength,
+			camera_world: iron.Scene.active.camera.transform.local.toFloat32Array(),
+			camera_origin: vec3f32(arm.plugin.Camera.inst.origins[0]),
+			camera_fov: iron.Scene.active.camera.data.raw.fov,
 			#if (kha_metal || kha_vulkan)
 			is_bgra: true
 			#else
@@ -115,30 +128,6 @@ class ExportArm {
 		Config.save();
 
 		Log.info("Project saved.");
-	}
-
-	static function getGroup(canvases: Array<TNodeCanvas>, name: String): TNodeCanvas {
-		for (c in canvases) if (c.name == name) return c;
-		return null;
-	}
-
-	static function hasGroup(c: TNodeCanvas): Bool {
-		for (n in c.nodes) if (n.type == "GROUP") return true;
-		return false;
-	}
-
-	static function traverseGroup(mgroups: Array<TNodeCanvas>, c: TNodeCanvas) {
-		for (n in c.nodes) {
-			if (n.type == "GROUP") {
-				if (getGroup(mgroups, n.name) == null) {
-					var canvases: Array<TNodeCanvas> = [];
-					for (g in Project.materialGroups) canvases.push(g.canvas);
-					var group = getGroup(canvases, n.name);
-					mgroups.push(Json.parse(Json.stringify(group)));
-					traverseGroup(mgroups, group);
-				}
-			}
-		}
 	}
 
 	static function exportNode(n: TNode, assets: Array<TAsset> = null) {
@@ -162,39 +151,20 @@ class ExportArm {
 		var m = Context.material;
 		var c: TNodeCanvas = Json.parse(Json.stringify(m.canvas));
 		var assets: Array<TAsset> = [];
-		if (hasGroup(c)) {
+		if (UINodes.hasGroup(c)) {
 			mgroups = [];
-			traverseGroup(mgroups, c);
+			UINodes.traverseGroup(mgroups, c);
 			for (gc in mgroups) for (n in gc.nodes) exportNode(n, assets);
 		}
 		for (n in c.nodes) exportNode(n, assets);
 		mnodes.push(c);
 
-		var texture_files = assetsToFiles(assets);
-
+		var texture_files = assetsToFiles(path, assets);
 		var isCloud = path.endsWith("_cloud_.arm");
-		if (isCloud) {
-			path = path.replace("_cloud_", "");
-			// Separate icon files
-			var out = new haxe.io.BytesOutput();
-			var writer = new arm.format.JpgWriter(out);
-			writer.write(
-				{
-					width: m.image.width,
-					height: m.image.height,
-					quality: 50,
-					pixels: m.image.getPixels()
-				}, 1
-			);
-			Krom.fileSaveBytes(path.substr(0, path.length - 4) + "_icon.jpg", out.getBytes().getData(), out.getBytes().length);
-			var out = new haxe.io.BytesOutput();
-			var writer = new arm.format.PngWriter(out);
-			var data = arm.format.PngTools.build32RGBA(m.image.width, m.image.height, m.image.getPixels());
-			writer.write(data);
-			Krom.fileSaveBytes(path.substr(0, path.length - 4) + "_icon.png", out.getBytes().getData(), out.getBytes().length);
-		}
+		if (isCloud) path = path.replace("_cloud_", "");
+		var packed_assets: Array<TPackedAsset> = getPackedAssets(path, texture_files);
 
-		var raw = {
+		var raw: TProjectFormat = {
 			version: Main.version,
 			material_nodes: mnodes,
 			material_groups: mgroups,
@@ -204,8 +174,22 @@ class ExportArm {
 				#else
 				[Lz4.encode(m.image.getPixels())],
 				#end
-			assets: texture_files
+			assets: texture_files,
+			packed_assets: packed_assets
 		};
+
+		if (Context.writeIconOnExport) { // Separate icon files
+			var pngBytes = getPngBytes(m.image);
+			Krom.fileSaveBytes(path.substr(0, path.length - 4) + "_icon.png", pngBytes.getData(), pngBytes.length);
+			if (isCloud) {
+				var jpgBytes = getJpgBytes(m.image);
+				Krom.fileSaveBytes(path.substr(0, path.length - 4) + "_icon.jpg", jpgBytes.getData(), jpgBytes.length);
+			}
+		}
+
+		if (Context.packAssetsOnExport) { // Pack textures
+			packAssets(raw, assets);
+		}
 
 		var bytes = ArmPack.encode(raw);
 		Krom.fileSaveBytes(path, bytes.getData(), bytes.length + 1);
@@ -223,6 +207,7 @@ class ExportArm {
 	#end
 
 	public static function runBrush(path: String) {
+		if (!path.endsWith(".arm")) path += ".arm";
 		var bnodes: Array<TNodeCanvas> = [];
 		var b = Context.brush;
 		var c: TNodeCanvas = Json.parse(Json.stringify(b.canvas));
@@ -230,27 +215,44 @@ class ExportArm {
 		for (n in c.nodes) exportNode(n, assets);
 		bnodes.push(c);
 
-		var texture_files = assetsToFiles(assets);
+		var texture_files = assetsToFiles(path, assets);
+		var isCloud = path.endsWith("_cloud_.arm");
+		if (isCloud) path = path.replace("_cloud_", "");
+		var packed_assets: Array<TPackedAsset> = getPackedAssets(path, texture_files);
 
 		var raw = {
 			version: Main.version,
 			brush_nodes: bnodes,
-			brush_icons: [Lz4.encode(b.image.getPixels())],
-			assets: texture_files
+			brush_icons: isCloud ? null :
+			#if (kha_metal || kha_vulkan)
+			[Lz4.encode(bgraSwap(b.image.getPixels()))],
+			#else
+			[Lz4.encode(b.image.getPixels())],
+			#end
+			assets: texture_files,
+			packed_assets: packed_assets
 		};
 
+		if (Context.writeIconOnExport) { // Separate icon file
+			var pngBytes = getPngBytes(b.image);
+			Krom.fileSaveBytes(path.substr(0, path.length - 4) + "_icon.png", pngBytes.getData(), pngBytes.length);
+		}
+
+		if (Context.packAssetsOnExport) { // Pack textures
+			packAssets(raw, assets);
+		}
+
 		var bytes = ArmPack.encode(raw);
-		if (!path.endsWith(".arm")) path += ".arm";
 		Krom.fileSaveBytes(path, bytes.getData(), bytes.length + 1);
 	}
 
-	static function assetsToFiles(assets: Array<TAsset>): Array<String> {
+	static function assetsToFiles(projectPath: String, assets: Array<TAsset>): Array<String> {
 		var texture_files: Array<String> = [];
 		for (a in assets) {
 			// Convert image path from absolute to relative
-			var sameDrive = Project.filepath.charAt(0) == a.file.charAt(0);
+			var sameDrive = projectPath.charAt(0) == a.file.charAt(0);
 			if (sameDrive) {
-				texture_files.push(Path.toRelative(Project.filepath, a.file));
+				texture_files.push(Path.toRelative(projectPath, a.file));
 			}
 			else {
 				texture_files.push(a.file);
@@ -259,13 +261,13 @@ class ExportArm {
 		return texture_files;
 	}
 
-	static function meshesToFiles(): Array<String> {
+	static function meshesToFiles(projectPath: String): Array<String> {
 		var mesh_files: Array<String> = [];
 		for (file in Project.meshAssets) {
 			// Convert mesh path from absolute to relative
-			var sameDrive = Project.filepath.charAt(0) == file.charAt(0);
+			var sameDrive = projectPath.charAt(0) == file.charAt(0);
 			if (sameDrive) {
-				mesh_files.push(Path.toRelative(Project.filepath, file));
+				mesh_files.push(Path.toRelative(projectPath, file));
 			}
 			else {
 				mesh_files.push(file);
@@ -274,19 +276,101 @@ class ExportArm {
 		return mesh_files;
 	}
 
-	static function fontsToFiles(fonts: Array<FontSlot>): Array<String> {
+	static function fontsToFiles(projectPath: String, fonts: Array<FontSlot>): Array<String> {
 		var font_files: Array<String> = [];
 		for (i in 1...fonts.length) {
 			var f = fonts[i];
 			// Convert font path from absolute to relative
-			var sameDrive = Project.filepath.charAt(0) == f.file.charAt(0);
+			var sameDrive = projectPath.charAt(0) == f.file.charAt(0);
 			if (sameDrive) {
-				font_files.push(Path.toRelative(Project.filepath, f.file));
+				font_files.push(Path.toRelative(projectPath, f.file));
 			}
 			else {
 				font_files.push(f.file);
 			}
 		}
 		return font_files;
+	}
+
+	static function getJpgBytes(image: kha.Image, quality = 50): haxe.io.Bytes {
+		var out = new haxe.io.BytesOutput();
+		var writer = new arm.format.JpgWriter(out);
+		writer.write(
+			{
+				width: image.width,
+				height: image.height,
+				quality: quality,
+				pixels: image.getPixels()
+			}, 1
+		);
+		return out.getBytes();
+	}
+
+	static function getPngBytes(image: kha.Image): haxe.io.Bytes {
+		var out = new haxe.io.BytesOutput();
+		var writer = new arm.format.PngWriter(out);
+		var data = arm.format.PngTools.build32RGBA(image.width, image.height, image.getPixels());
+		writer.write(data);
+		return out.getBytes();
+	}
+
+	static function getPackedAssets(projectPath: String, texture_files: Array<String>): Array<TPackedAsset> {
+		var packed_assets: Array<TPackedAsset> = null;
+		if (Project.raw.packed_assets != null) {
+			for (pa in Project.raw.packed_assets) {
+				// Convert path from absolute to relative
+				var sameDrive = projectPath.charAt(0) == pa.name.charAt(0);
+				pa.name = sameDrive ? Path.toRelative(projectPath, pa.name) : pa.name;
+				for (tf in texture_files) {
+					if (pa.name == tf) {
+						if (packed_assets == null) {
+							packed_assets = [];
+						}
+						packed_assets.push(pa);
+						break;
+					}
+				}
+			}
+		}
+		return packed_assets;
+	}
+
+	static function packAssets(raw: TProjectFormat, assets: Array<TAsset>) {
+		if (raw.packed_assets == null) {
+			raw.packed_assets = [];
+		}
+		var tempImages: Array<kha.Image> = [];
+		for (i in 0...assets.length) {
+			if (!Project.packedAssetExists(raw.packed_assets, raw.assets[i])) {
+				var image = Project.getImage(assets[i]);
+				var temp = kha.Image.createRenderTarget(image.width, image.height);
+				temp.g2.begin(false);
+				temp.g2.drawImage(image, 0, 0);
+				temp.g2.end();
+				tempImages.push(temp);
+				raw.packed_assets.push({ name: raw.assets[i], bytes: assets[i].name.endsWith(".jpg") ? getJpgBytes(temp, 80) : getPngBytes(temp) });
+			}
+		}
+		App.notifyOnNextFrame(function() {
+			for (image in tempImages) image.unload();
+		});
+	}
+
+	public static function runSwatches(path: String) {
+		if (!path.endsWith(".arm")) path += ".arm";
+		var raw = {
+			version: Main.version,
+			swatches: Project.raw.swatches
+		};
+		var bytes = ArmPack.encode(raw);
+		Krom.fileSaveBytes(path, bytes.getData(), bytes.length + 1);
+	}
+
+	static function vec3f32(v: iron.math.Vec4): kha.arrays.Float32Array {
+		var res = new kha.arrays.Float32Array(3);
+		res[0] = v.x;
+		res[1] = v.y;
+		res[2] = v.z;
+		return res;
 	}
 }

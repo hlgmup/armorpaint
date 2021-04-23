@@ -58,24 +58,23 @@ class MakeMeshPreview {
 
 		var brushScale = (Context.brushScale * Context.brushNodesScale) + "";
 		vert.add_out('vec2 texCoord');
-		vert.write_attrib('texCoord = tex * ${brushScale};');
-
-		if (MakeMaterial.heightUsed) {
-			frag.bposition = true;
-		}
+		vert.write_attrib('texCoord = tex * float(${brushScale});');
 
 		var decal = Context.decalPreview;
 		MaterialParser.sample_keep_aspect = decal;
 		MaterialParser.sample_uv_scale = brushScale;
 		MaterialParser.parse_height = MakeMaterial.heightUsed;
-		var sout = MaterialParser.parse(UINodes.inst.getCanvasMaterial(), con_mesh, vert, frag, null, null, null, matcon);
+		MaterialParser.parse_height_as_channel = true;
+		var sout = MaterialParser.parse(UINodes.inst.getCanvasMaterial(), con_mesh, vert, frag, matcon);
 		MaterialParser.parse_height = false;
+		MaterialParser.parse_height_as_channel = false;
 		MaterialParser.sample_keep_aspect = false;
 		var base = sout.out_basecol;
 		var rough = sout.out_roughness;
 		var met = sout.out_metallic;
 		var occ = sout.out_occlusion;
 		var opac = sout.out_opacity;
+		var height = sout.out_height;
 		var nortan = MaterialParser.out_normaltan;
 		frag.write('vec3 basecol = pow($base, vec3(2.2, 2.2, 2.2));');
 		frag.write('float roughness = $rough;');
@@ -83,6 +82,17 @@ class MakeMeshPreview {
 		frag.write('float occlusion = $occ;');
 		frag.write('float opacity = $opac;');
 		frag.write('vec3 nortan = $nortan;');
+		frag.write('float height = $height;');
+
+		// MaterialParser.parse_height_as_channel = false;
+		// vert.write('float vheight = $height;');
+		// vert.add_out('float height');
+		// vert.write('height = vheight;');
+		// var displaceStrength = 0.1;
+		// if (MakeMaterial.heightUsed && displaceStrength > 0.0) {
+		// 	vert.write('vec3 pos2 = $pos.xyz + vec3(nor.xy, pos.w) * vec3($height, $height, $height) * vec3($displaceStrength, $displaceStrength, $displaceStrength);');
+		// 	vert.write('gl_Position = mul(vec4(pos2.xyz, 1.0), WVP);');
+		// }
 
 		if (decal) {
 			if (Context.tool == ToolText) {
@@ -101,6 +111,19 @@ class MakeMeshPreview {
 		frag.add_function(ShaderFunctions.str_packFloatInt16);
 		frag.add_function(ShaderFunctions.str_cotangentFrame);
 		frag.add_function(ShaderFunctions.str_octahedronWrap);
+
+		if (MakeMaterial.heightUsed) {
+			frag.write('if (height > 0.0) {');
+			frag.write('float height_dx = dFdx(height * 2.0);');
+			frag.write('float height_dy = dFdy(height * 2.0);');
+			// frag.write('float height_dx = height0 - height1;');
+			// frag.write('float height_dy = height2 - height3;');
+			// Whiteout blend
+			frag.write('vec3 n1 = nortan * vec3(2.0, 2.0, 2.0) - vec3(1.0, 1.0, 1.0);');
+			frag.write('vec3 n2 = normalize(vec3(height_dx * 16.0, height_dy * 16.0, 1.0));');
+			frag.write('nortan = normalize(vec3(n1.xy + n2.xy, n1.z * n2.z)) * vec3(0.5, 0.5, 0.5) + vec3(0.5, 0.5, 0.5);');
+			frag.write('}');
+		}
 
 		// Apply normal channel
 		if (decal) {

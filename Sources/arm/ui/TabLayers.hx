@@ -42,7 +42,7 @@ class TabLayers {
 				History.newLayer();
 			}
 			if (ui.button(tr("2D View"))) UISidebar.inst.show2DView(View2DLayer);
-			else if (ui.isHovered) ui.tooltip(tr("Show 2D View") + ' (${Config.keymap.toggle_node_editor})');
+			else if (ui.isHovered) ui.tooltip(tr("Show 2D View") + ' (${Config.keymap.toggle_2d_view})');
 
 			var ar = [tr("All")];
 			for (p in Project.paintObjects) ar.push(p.name);
@@ -110,13 +110,19 @@ class TabLayers {
 				var my = mouse.y;
 				var inLayers = mx > UISidebar.inst.tabx && my < Config.raw.layout[LayoutSidebarH0];
 				if (App.isDragging && App.dragLayer != null && inLayers) {
-					if (my > ui._y - step && my < ui._y + step) {
-						ui.fill(checkw, 0, (ui._windowW / ui.SCALE() - 2) - checkw, 2 * ui.SCALE(), ui.t.HIGHLIGHT_COL);
-						Context.dragDestination = Project.layers.indexOf(App.dragLayer) < i ? i : i + 1;
+					if (my > ui._y + step && my < ui._y + step * 3) {
+						var down = Project.layers.indexOf(App.dragLayer) >= i;
+						Context.dragDestination = down ? i : i - 1;
+
+						var ls = Project.layers;
+						var dest = Context.dragDestination;
+						var toGroup = down ? dest > 0 && ls[dest - 1].parent != null && ls[dest - 1].parent.show_panel : dest < ls.length && ls[dest].parent != null && ls[dest].parent.show_panel;
+						var nestedGroup = App.dragLayer.getChildren() != null && toGroup;
+						if (!nestedGroup) ui.fill(checkw, step * 2, (ui._windowW / ui.SCALE() - 2) - checkw, 2 * ui.SCALE(), ui.t.HIGHLIGHT_COL);
 					}
-					else if (i == 0 && my > ui._y + step) {
-						ui.fill(checkw, step * 2, (ui._windowW / ui.SCALE() - 2) - checkw, 2 * ui.SCALE(), ui.t.HIGHLIGHT_COL);
-						Context.dragDestination = 0;
+					else if (i == Project.layers.length - 1 && my < ui._y + step) {
+						Context.dragDestination = Project.layers.length - 1;
+						ui.fill(checkw, 0, (ui._windowW / ui.SCALE() - 2) - checkw, 2 * ui.SCALE(), ui.t.HIGHLIGHT_COL);
 					}
 				}
 
@@ -139,6 +145,7 @@ class TabLayers {
 
 				if (ui.image(icons, col, null, r.x, r.y, r.w, r.h) == Released) {
 					l.visible = !l.visible;
+					UIView2D.inst.hwnd.redraws = 2;
 					MakeMaterial.parseMeshMaterial();
 				}
 				ui._x -= 2;
@@ -196,12 +203,15 @@ class TabLayers {
 				}
 				if (state == State.Started) {
 					Context.setLayer(l);
-					if (Time.time() - Context.selectTime < 0.25) UISidebar.inst.show2DView(View2DLayer);
-					Context.selectTime = Time.time();
+					if (l.fill_layer != null) Context.setMaterial(l.fill_layer);
+					if (Time.time() - Context.selectTime < 0.2) {
+						UISidebar.inst.show2DView(View2DLayer);
+					}
+					if (Time.time() - Context.selectTime > 0.2) {
+						Context.selectTime = Time.time();
+					}
 					var mouse = Input.getMouse();
-					App.dragOffX = -(mouse.x - uix - ui._windowX - 3);
-					App.dragOffY = -(mouse.y - uiy - ui._windowY + 1);
-					App.dragLayer = Context.layer;
+					setDragLayer(Context.layer, -(mouse.x - uix - ui._windowX - 3), -(mouse.y - uiy - ui._windowY + 1));
 				}
 
 				if (l.texpaint_mask != null) {
@@ -220,7 +230,15 @@ class TabLayers {
 
 					var state = State.Idle;
 					if (l.fill_mask != null) {
+						#if kha_opengl
+						ui.imageInvertY = true;
+						#end
+
 						state = ui.image(l.fill_mask.imageIcon, 0xffffffff, (ui.ELEMENT_H() - 3) * 2);
+
+						#if kha_opengl
+						ui.imageInvertY = false;
+						#end
 					}
 					else {
 						ui.g.pipeline = UIView2D.pipe;
@@ -267,9 +285,6 @@ class TabLayers {
 								}
 								iron.App.notifyOnInit(_init);
 							}
-							if (l.fill_mask != null && ui.button(tr("Select Material"), Left)) {
-								Context.setMaterial(l.fill_mask);
-							}
 							if (ui.button(tr("Delete"), Left)) {
 								Context.setLayer(l, true);
 								History.deleteMask();
@@ -303,16 +318,19 @@ class TabLayers {
 								}
 								iron.App.notifyOnInit(_init);
 							}
-						}, 6 + add);
+						}, 5 + add);
 					}
 					if (state == State.Started) {
 						Context.setLayer(l, true);
-						if (Time.time() - Context.selectTime < 0.25) UISidebar.inst.show2DView(View2DLayer);
-						Context.selectTime = Time.time();
+						if (l.fill_mask != null) Context.setMaterial(l.fill_mask);
+						if (Time.time() - Context.selectTime < 0.2) {
+							UISidebar.inst.show2DView(View2DLayer);
+						}
+						if (Time.time() - Context.selectTime > 0.2) {
+							Context.selectTime = Time.time();
+						}
 						var mouse = Input.getMouse();
-						App.dragOffX = -(mouse.x - uix - ui._windowX - 3);
-						App.dragOffY = -(mouse.y - uiy - ui._windowY + 1);
-						App.dragLayer = Context.layer;
+						setDragLayer(Context.layer, -(mouse.x - uix - ui._windowX - 3), -(mouse.y - uiy - ui._windowY + 1));
 					}
 				}
 
@@ -324,25 +342,30 @@ class TabLayers {
 				}
 				else {
 
-					if (ui.inputReleasedR && ui.enabled && ui.inputEnabled &&
+					if (ui.enabled && ui.inputEnabled &&
 						ui.inputX > ui._windowX + ui._x && ui.inputX < ui._windowX + ui._x + ui._w &&
 						ui.inputY > ui._windowY + ui._y - center && ui.inputY < ui._windowY + ui._y - center + step * 2) {
-						contextMenu = true;
+						if (ui.inputStarted) {
+							Context.setLayer(l);
+							if (Time.time() - Context.selectTime > 0.2) {
+								Context.selectTime = Time.time();
+							}
+							var mouse = Input.getMouse();
+							setDragLayer(Context.layer, -(mouse.x - uix - ui._windowX - 3), -(mouse.y - uiy - ui._windowY + 1));
+						}
+						else if (ui.inputReleasedR) {
+							contextMenu = true;
+						}
 					}
 
 					var state = ui.text(l.name);
 					if (state == State.Started) {
-						Context.setLayer(l);
-						if (Time.time() - Context.selectTime < 0.25) {
+						var td = Time.time() - Context.selectTime;
+						if (td < 0.2 && td > 0.0) {
 							layerNameEdit = l.id;
 							layerNameHandle.text = l.name;
 							ui.startTextEdit(layerNameHandle);
 						}
-						Context.selectTime = Time.time();
-						var mouse = Input.getMouse();
-						App.dragOffX = -(mouse.x - uix - ui._windowX - 3);
-						App.dragOffY = -(mouse.y - uiy - ui._windowY + 1);
-						App.dragLayer = Context.layer;
 					}
 				}
 				ui._y -= center;
@@ -351,7 +374,9 @@ class TabLayers {
 
 				if (contextMenu) {
 
-					var add = l.fill_layer != null ? 1 : 0;
+					var add = 0;
+					if (Project.layers.indexOf(l) > 0) add++; // Merge down
+					if (l.fill_layer == null) add++; // Clear
 					var menuElements = l.getChildren() != null ? 6 : (19 + add);
 
 					UIMenu.draw(function(ui: Zui) {
@@ -415,7 +440,7 @@ class TabLayers {
 								for (m in Project.materials) remapLayerPointers(m.canvas.nodes, fillLayerMap(pointers));
 							}
 						}
-						if (ui.button(tr("Clear"), Left)) {
+						if (l.fill_layer == null && ui.button(tr("Clear"), Left)) {
 							Context.setLayer(l);
 							function _init() {
 								if (l.getChildren() == null) {
@@ -443,14 +468,19 @@ class TabLayers {
 								}
 								children[0].parent = null;
 								children[0].name = l.name;
+								if (children[0].fill_layer != null) children[0].toPaintLayer();
 								l.delete();
 							}
 							iron.App.notifyOnInit(_init);
 						}
-						if (l.getChildren() == null && ui.button(tr("Merge Down"), Left)) {
-							Context.setLayer(l);
-							iron.App.notifyOnInit(History.mergeLayers);
-							iron.App.notifyOnInit(Layers.mergeDown);
+						if (l.getChildren() == null && Project.layers.indexOf(l) > 0 && ui.button(tr("Merge Down"), Left)) {
+							function _init() {
+								Context.setLayer(l);
+								History.mergeLayers();
+								Layers.mergeDown();
+								if (Context.layer.fill_layer != null) Context.layer.toPaintLayer();
+							}
+							iron.App.notifyOnInit(_init);
 						}
 						if (ui.button(tr("Duplicate"), Left)) {
 							function _init() {
@@ -491,45 +521,49 @@ class TabLayers {
 							History.newMask();
 						}
 
-						if (l.fill_layer != null && ui.button(tr("Select Material"), Left)) {
-							Context.setMaterial(l.fill_layer);
-						}
-
 						if (l.getChildren() == null) {
 							var baseHandle = Id.handle().nest(l.id);
 							var opacHandle = Id.handle().nest(l.id);
 							var norHandle = Id.handle().nest(l.id);
+							var norBlendHandle = Id.handle().nest(l.id);
 							var occHandle = Id.handle().nest(l.id);
 							var roughHandle = Id.handle().nest(l.id);
 							var metHandle = Id.handle().nest(l.id);
 							var heightHandle = Id.handle().nest(l.id);
+							var heightBlendHandle = Id.handle().nest(l.id);
 							var emisHandle = Id.handle().nest(l.id);
 							var subsHandle = Id.handle().nest(l.id);
 							baseHandle.selected = l.paintBase;
 							opacHandle.selected = l.paintOpac;
 							norHandle.selected = l.paintNor;
+							norBlendHandle.selected = l.paintNorBlend;
 							occHandle.selected = l.paintOcc;
 							roughHandle.selected = l.paintRough;
 							metHandle.selected = l.paintMet;
 							heightHandle.selected = l.paintHeight;
+							heightBlendHandle.selected = l.paintHeightBlend;
 							emisHandle.selected = l.paintEmis;
 							subsHandle.selected = l.paintSubs;
 							l.paintBase = ui.check(baseHandle, tr("Base Color"));
 							l.paintOpac = ui.check(opacHandle, tr("Opacity"));
 							l.paintNor = ui.check(norHandle, tr("Normal"));
+							l.paintNorBlend = ui.check(norBlendHandle, tr("Normal Blending"));
 							l.paintOcc = ui.check(occHandle, tr("Occlusion"));
 							l.paintRough = ui.check(roughHandle, tr("Roughness"));
 							l.paintMet = ui.check(metHandle, tr("Metallic"));
 							l.paintHeight = ui.check(heightHandle, tr("Height"));
+							l.paintHeightBlend = ui.check(heightBlendHandle, tr("Height Blending"));
 							l.paintEmis = ui.check(emisHandle, tr("Emission"));
 							l.paintSubs = ui.check(subsHandle, tr("Subsurface"));
 							if (baseHandle.changed ||
 								opacHandle.changed ||
 								norHandle.changed ||
+								norBlendHandle.changed ||
 								occHandle.changed ||
 								roughHandle.changed ||
 								metHandle.changed ||
 								heightHandle.changed ||
+								heightBlendHandle.changed ||
 								emisHandle.changed ||
 								subsHandle.changed) {
 								MakeMaterial.parseMeshMaterial();
@@ -595,13 +629,14 @@ class TabLayers {
 					var atlases = Project.getUsedAtlases();
 					if (atlases != null) for (a in atlases) ar.push(a);
 					var objectHandle = Id.handle().nest(l.id);
-					objectHandle.position = l.objectMask == null ? 0 : l.objectMask; // TODO: deprecated
+					objectHandle.position = l.objectMask;
 					l.objectMask = ui.combo(objectHandle, ar, tr("Object"), false, Left, 16);
 					if (objectHandle.changed) {
 						Context.setLayer(l);
 						MakeMaterial.parseMeshMaterial();
 						if (l.fill_layer != null) { // Fill layer
 							function _init() {
+								Context.material = l.fill_layer;
 								l.clear();
 								Layers.updateFillLayers();
 							}
@@ -723,5 +758,12 @@ class TabLayers {
 		var res: Map<Int, Int> = [];
 		for (l in map.keys()) res.set(map.get(l), Project.layers.indexOf(l) > -1 ? Project.layers.indexOf(l) : 9999);
 		return res;
+	}
+
+	static function setDragLayer(layer: LayerSlot, offX: Float, offY: Float) {
+		App.dragOffX = offX;
+		App.dragOffY = offY;
+		App.dragLayer = layer;
+		Context.dragDestination = Project.layers.indexOf(layer);
 	}
 }

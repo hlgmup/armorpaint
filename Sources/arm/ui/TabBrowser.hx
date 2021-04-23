@@ -9,7 +9,9 @@ import arm.Enums;
 class TabBrowser {
 
 	static var hpath = new Handle();
+	static var hsearch = new Handle();
 	static var known = false;
+	static var lastPath =  "";
 
 	@:access(zui.Zui)
 	public static function draw() {
@@ -23,18 +25,29 @@ class TabBrowser {
 
 			var bookmarksW = Std.int(100 * ui.SCALE());
 
-			var _y = ui._y;
-			ui._x = bookmarksW;
-			ui._w -= bookmarksW;
 			if (hpath.text == "" && Config.raw.bookmarks.length > 0) { // Init to first bookmark
 				hpath.text = Config.raw.bookmarks[0];
 			}
 
-			// ui.beginSticky();
+			ui.beginSticky();
+			ui.row([bookmarksW / ui._w, (1 - bookmarksW / ui._w) * 0.8, (1 - bookmarksW / ui._w) * 0.2]);
+			if (ui.button("+")) {
+				Config.raw.bookmarks.push(hpath.text);
+				Config.save();
+			}
 			hpath.text = ui.textInput(hpath, tr("Path"));
-			// ui.endSticky();
+			hsearch.text = ui.textInput(hsearch, tr("Search"));
+			ui.endSticky();
 
-			UIFiles.fileBrowser(ui, hpath, false, true);
+			if (lastPath != hpath.text) {
+				hsearch.text = "";
+			}
+			lastPath = hpath.text;
+
+			var _y = ui._y;
+			ui._x = bookmarksW;
+			ui._w -= bookmarksW;
+			UIFiles.fileBrowser(ui, hpath, false, true, hsearch.text);
 
 			if (known) {
 				var path = hpath.text;
@@ -43,18 +56,15 @@ class TabBrowser {
 				});
 				hpath.text = hpath.text.substr(0, hpath.text.lastIndexOf(Path.sep));
 			}
-			known = hpath.text.indexOf(".") > 0;
+			known = hpath.text.substr(hpath.text.lastIndexOf(Path.sep)).indexOf(".") > 0;
+			#if krom_android
+			if (hpath.text.endsWith(".armorpaint")) known = false;
+			#end
 
 			var bottomY = ui._y;
-			var _h = ui._h;
 			ui._x = 0;
 			ui._y = _y;
 			ui._w = bookmarksW;
-
-			if (ui.button("+")) {
-				Config.raw.bookmarks.push(hpath.text);
-				Config.save();
-			}
 
 			if (ui.button(tr("Cloud"), Left)) {
 				hpath.text = "cloud";
@@ -82,7 +92,7 @@ class TabBrowser {
 				}
 			}
 
-			ui._y = bottomY;
+			if (ui._y < bottomY) ui._y = bottomY;
 		}
 	}
 }
